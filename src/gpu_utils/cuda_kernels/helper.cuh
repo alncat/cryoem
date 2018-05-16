@@ -45,7 +45,8 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 				weight = (weights_t)0.0;
 			else
 			{
-				diff2 -= avg_diff2;
+				//diff2 -= avg_diff2;
+                diff2 -= min_diff2;
 				weight = g_pdf_orientation[iorient] * g_pdf_offset[itrans];          	// Same for all threads - TODO: should be done once for all trans through warp-parallel execution
 
 				if (failsafe && weight < FAILSAFE_PRIOR_MIN_LIM) //Prevent zero priors in fail-safe mode
