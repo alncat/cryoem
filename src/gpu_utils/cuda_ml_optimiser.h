@@ -427,6 +427,8 @@ public:
 
 	bool haveWarnedRefinementMem;
 
+    cudaStream_t stream = NULL;
+
 	MlDeviceBundle(MlOptimiser *baseMLOptimiser):
 			baseMLO(baseMLOptimiser),
 			generateProjectionPlanOnTheFly(false),
@@ -440,6 +442,11 @@ public:
 	{
 		device_id = did;
 	}
+
+    void setStream()
+    {
+        cudaStreamCreate(&stream);
+    }
 
 	size_t checkFixedSizedObjects(int shares);
 	void setupFixedSizedObjects();
@@ -456,6 +463,9 @@ public:
 		cudaProjectors.clear();
 		cudaBackprojectors.clear();
 		coarseProjectionPlans.clear();
+        if(stream != NULL){
+            HANDLE_ERROR(cudaStreamDestroy(stream));
+        }
 		//Delete this lastly
 		delete allocator;
 		HANDLE_ERROR(cudaSetDevice(device_id));

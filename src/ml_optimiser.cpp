@@ -419,6 +419,11 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     nr_iter = textToInteger(parser.getOption("--iter", "Maximum number of iterations to perform", "50"));
     mymodel.pixel_size = textToFloat(parser.getOption("--angpix", "Pixel size (in Angstroms)", "-1"));
 	mymodel.tau2_fudge_factor = textToFloat(parser.getOption("--tau2_fudge", "Regularisation parameter (values higher than 1 give more weight to the data)", "1"));
+    mymodel.do_tv = textToInteger(parser.getOption("--do_tv", "Toggle graph net based reconstruction", "0"));
+    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in graph net based reconstruction", "20"));
+    mymodel.l_r = textToFloat(parser.getOption("--tv_lr", "Learning rate for graph net based reconstrunction", "0.01"));
+    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 terms", "1"));
+    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for Graph L2 terms", "1"));
 	mymodel.nr_classes = textToInteger(parser.getOption("--K", "Number of references to be refined", "1"));
     particle_diameter = textToFloat(parser.getOption("--particle_diameter", "Diameter of the circular mask that will be applied to the experimental images (in Angstroms)", "-1"));
 	do_zero_mask = parser.checkOption("--zero_mask","Mask surrounding background in particles to zero (by default the solvent area is filled with random noise)");
@@ -1199,6 +1204,8 @@ void MlOptimiser::initialise()
 
 void MlOptimiser::initialiseGeneral(int rank)
 {
+    //initialise my rank
+    myRank = rank;
 
 #ifdef DEBUG
 	std::cerr << "Entering initialiseGeneral" << std::endl;
@@ -3576,7 +3583,7 @@ void MlOptimiser::maximization()
 				(wsum_model.BPref[iclass]).reconstruct(mymodel.Iref[iclass], gridding_nr_iter, do_map,
 						mymodel.tau2_fudge_factor, mymodel.tau2_class[iclass], mymodel.sigma2_class[iclass],
 						mymodel.data_vs_prior_class[iclass], mymodel.fourier_coverage_class[iclass],
-						mymodel.fsc_halves_class, wsum_model.pdf_class[iclass], false, false, nr_threads, minres_map, (iclass==0));
+						mymodel.fsc_halves_class, wsum_model.pdf_class[iclass], false, false, nr_threads, minres_map, (iclass==0), mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta);
 
             }
 		}

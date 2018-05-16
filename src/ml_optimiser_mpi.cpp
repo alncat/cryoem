@@ -1906,6 +1906,16 @@ void MlOptimiserMpi::maximization()
 	helical_rise_half1 = helical_rise_half2 = helical_rise_initial;
 
 	// First reconstruct all classes in parallel
+    void* devBundle = NULL;
+    if(do_gpu && cudaDevices.size()){
+        int dev = node->rank % cudaDevices.size();
+        std::cout << node->rank << " assigned to device " << cudaDevices[dev] << std::endl;
+        MlDeviceBundle * b = new MlDeviceBundle(this);
+        b->setDevice(cudaDevices[dev]);
+        b->setStream();
+        devBundle = (void *) b;
+    }
+
 	for (int ibody = 0; ibody < mymodel.nr_bodies; ibody++)
 	{
 		for (int iclass = 0; iclass < mymodel.nr_classes; iclass++)
@@ -1925,7 +1935,7 @@ void MlOptimiserMpi::maximization()
 
 				if (node->rank == reconstruct_rank1)
 				{
-
+                    
 					if (do_sgd)
 					{
 
@@ -1960,20 +1970,21 @@ void MlOptimiserMpi::maximization()
 					}
 					else
 					{
+                        
 #ifdef TIMING
 						wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], gridding_nr_iter, do_map,
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
 #else
 						wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], gridding_nr_iter, do_map,
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
 #endif
-					}
+                    }
 
 					// Also perform the unregularized reconstruction
 					if (do_auto_refine && has_converged)
@@ -2048,6 +2059,7 @@ void MlOptimiserMpi::maximization()
 
 					if (node->rank == reconstruct_rank2)
 					{
+
 						// Rank 2 does not need to do the joined reconstruction
 						if (!do_join_random_halves)
 						{
@@ -2089,7 +2101,8 @@ void MlOptimiserMpi::maximization()
 									mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 									mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 									mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-									do_split_random_halves, do_join_random_halves, nr_threads, minres_map);
+									do_split_random_halves, do_join_random_halves, nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+
 							}
 						}
 
@@ -2169,11 +2182,14 @@ void MlOptimiserMpi::maximization()
 #endif
 		} // end for iclass
 	} // end for ibody
-
+    
 #ifdef DEBUG
 	std::cerr << "rank= "<<node->rank<<" has reached barrier of reconstruction" << std::endl;
 #endif
 	MPI_Barrier(MPI_COMM_WORLD);
+//deallocate gpu
+    if(devBundle)
+        delete (MlDeviceBundle*)devBundle;
 
 #ifdef DEBUG
 	std::cerr << "All classes have been reconstructed" << std::endl;

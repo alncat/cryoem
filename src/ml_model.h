@@ -64,6 +64,15 @@ public:
 	// Perform SGD instead of expectation maximization?
 	bool do_sgd;
 
+    // Perform graph based regularization
+    int do_tv;
+
+    // learning rate graph restraint scale
+    RFLOAT l_r, tv_alpha, tv_beta;
+
+    // number of tv iterations
+    int tv_iters;
+
 	// Number of particles in each group
 	std::vector<long int> nr_particles_group;
 
@@ -93,6 +102,7 @@ public:
 
 	// Fudge factor to adjust estimated tau2_class spectra
 	RFLOAT tau2_fudge_factor;
+
 
 	// Vector with all reference images
 	std::vector<MultidimArray<RFLOAT> > Iref;

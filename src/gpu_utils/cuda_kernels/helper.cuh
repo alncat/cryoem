@@ -385,6 +385,10 @@ __global__ void cuda_kernel_multi( XFLOAT *A,
 								   XFLOAT S,
 		  	  	  	  	  	  	   int image_size);
 
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                      XFLOAT *B,
+                                      int image_size);
+
 /*
  * In place multiplies scalar array A by a scalar S
  *
@@ -405,10 +409,53 @@ __global__ void cuda_kernel_multi( XFLOAT *A,
 								   XFLOAT S,
 		  	  	  	  	  	  	   int image_size);
 
+/* Multiplies complex array A by scalar array B and a scalar S, pixel-by-pixel
+ *
+ *  A[i] = A[i]*B[i]*S
+ */
+__global__ void cuda_kernel_complex_multi( XFLOAT *A,
+								   XFLOAT *B,
+								   XFLOAT S,
+		  	  	  	  	  	  	   int image_size);
+
+__global__ void cuda_kernel_update_momentum(XFLOAT *grads,
+                                            XFLOAT *momentum,
+                                            XFLOAT mu,
+                                            XFLOAT l_r,
+                                            int image_size);
+
+
 __global__ void cuda_kernel_finalizeMstddev( XFLOAT *Mstddev,
 											 XFLOAT *aux,
 											 XFLOAT S,
 											 int image_size);
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *momentum,
+                                           XFLOAT *grads,
+                                           XFLOAT mu,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           int image_size);
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Z,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT epslog,
+                                       XFLOAT eps,
+                                       int image_size);
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT eps,
+                                       int image_size);
 
 /*
  * In place squares array in place

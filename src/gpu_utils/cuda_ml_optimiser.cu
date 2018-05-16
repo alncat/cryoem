@@ -1693,19 +1693,20 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 
 					if (filteredSize == 0)
 					{
-						if (failsafeMode) //Only print error if not managed to recover through fail-safe mode
-						{
+						//if (failsafeMode) //Only print error if not managed to recover through fail-safe mode
+						//{
 							std::cerr << std::endl;
 							std::cerr << " fn_img= " << sp.current_img << std::endl;
 							std::cerr << " ipart= " << ipart << " adaptive_fraction= " << baseMLO->adaptive_fraction << std::endl;
 							std::cerr << " min_diff2= " << op.min_diff2[ipart] << std::endl;
+                            std::cerr << " avg_diff2= " << op.avg_diff2[ipart] << std::endl;
 
 							pdf_orientation.dump_device_to_file("error_dump_pdf_orientation");
 							pdf_offset.dump_device_to_file("error_dump_pdf_offset");
 							unsorted_ipart.dump_device_to_file("error_dump_filtered");
 
 							std::cerr << "Dumped data: error_dump_pdf_orientation, error_dump_pdf_orientation and error_dump_unsorted." << std::endl;
-						}
+						//}
 
 						CRITICAL(ERRFILTEREDZERO); // "filteredSize == 0"
 					}

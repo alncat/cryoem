@@ -12,10 +12,122 @@
 #if(defined(CubLog) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__<= 520)) // Intetionally force a warning for new arch
 	#undef CubLog
 #endif
+//#include "src/gpu_utils/cub/cub.cuh"
+#include "src/gpu_utils/cub/block/block_reduce.cuh"
+//#include "src/gpu_utils/cub/block/block_histogram.cuh"
+//#include "src/gpu_utils/cub/block/block_discontinuity.cuh"
+//#include "src/gpu_utils/cub/block/block_exchange.cuh"
+#include "src/gpu_utils/cub/block/block_load.cuh"
+//#include "src/gpu_utils/cub/block/block_radix_rank.cuh"
+//#include "src/gpu_utils/cub/block/block_radix_sort.cuh"
+//#include "src/gpu_utils/cub/block/block_scan.cuh"
+#include "src/gpu_utils/cub/block/block_store.cuh"
+//
 #include "src/gpu_utils/cub/device/device_radix_sort.cuh"
 #include "src/gpu_utils/cub/device/device_reduce.cuh"
 #include "src/gpu_utils/cub/device/device_scan.cuh"
 #include "src/gpu_utils/cub/device/device_select.cuh"
+
+template<typename T>
+struct Square
+{
+    __host__ __device__ __forceinline__
+    T operator()(const T& a, const T& b) const {
+        return a + b*b;
+    }
+};
+//using namespace cub;
+
+template <
+    typename                T,
+    int                     BLOCK_THREADS,
+    int                     ITEMS_PER_THREAD,
+    cub::BlockLoadAlgorithm     LALGORITHM,
+    cub::BlockReduceAlgorithm    ALGORITHM>
+__global__ void BlockSumKernel(
+    T         *d_in,          // Tile of input
+    T         *d_out,
+    int       in_size)         // Tile aggregate
+{
+    // Specialize BlockReduce type for our thread block
+    typedef cub::BlockLoad<T, BLOCK_THREADS, ITEMS_PER_THREAD, LALGORITHM> BlockLoadT;
+    typedef cub::BlockReduce<T, BLOCK_THREADS, ALGORITHM> BlockReduceT;
+    // Shared memory
+    __shared__ union {
+        typename BlockLoadT::TempStorage load;
+        typename BlockReduceT::TempStorage reduce;
+    } temp_storage;
+    // Per-thread tile data
+    T data[ITEMS_PER_THREAD];
+    //cub::LoadDirectBlockedVectorized(threadIdx.x,
+    //        d_in+blockIdx.x*BLOCK_THREADS*ITEMS_PER_THREAD, 
+    //        data);
+    int offset = blockIdx.x*BLOCK_THREADS*ITEMS_PER_THREAD;
+    int valid_items = min(BLOCK_THREADS*ITEMS_PER_THREAD, in_size - offset);
+    BlockLoadT(temp_storage.load).Load(d_in+offset, data, valid_items, T());
+
+    for(int item=0; item<ITEMS_PER_THREAD; ++item)
+        data[item] *= data[item];
+    // Compute sum
+    T aggregate = BlockReduceT(temp_storage.reduce).Sum(data);
+    // Store aggregate and elapsed clocks
+    if (threadIdx.x == 0)
+    {
+        atomicAdd(d_out, aggregate);
+    }
+}
+
+template <typename T, bool CustomAlloc>
+static T getSquareSumOnBlock(CudaGlobalPtr<T, CustomAlloc> &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with pointer of zero size.\n");
+if (ptr.d_ptr == NULL)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL && CustomAlloc)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null allocator.\n");
+#endif
+	CudaGlobalPtr<T, CustomAlloc>  val(1, ptr.getStream(), ptr.getAllocator());
+	val.device_alloc();
+
+	int sumSize = (int) ceilf(((XFLOAT) ptr.getSize())/((XFLOAT)(512*4)));
+    BlockSumKernel<T, 512, 4, cub::BLOCK_LOAD_VECTORIZE, cub::BLOCK_REDUCE_RAKING><<<sumSize, 512, 0, ptr.getStream()>>>(~ptr, ~val, ptr.getSize());
+	ptr.streamSync();
+    val.cp_to_host();
+
+	return val[0];
+}
+
+template <typename T, bool CustomAlloc>
+static T getSquareSumOnDevice(CudaGlobalPtr<T, CustomAlloc> &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with pointer of zero size.\n");
+if (ptr.d_ptr == NULL)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL && CustomAlloc)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null allocator.\n");
+#endif
+	CudaGlobalPtr<T, CustomAlloc>  val(1, ptr.getStream(), ptr.getAllocator());
+	val.device_alloc();
+    val.device_init(T());
+    void *d_temp_storage = NULL;
+	size_t temp_storage_size = 0;
+    Square<T> sq;
+
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~val, ptr.size, sq, T(), ptr.getStream()));
+
+    cudaMalloc(&d_temp_storage, temp_storage_size);
+
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~val, ptr.size, sq, T(), ptr.getStream()));
+
+	ptr.streamSync();
+	val.cp_to_host();
+    cudaFree(d_temp_storage);
+	return val[0];
+}
 
 template <typename T>
 static std::pair<int, T> getArgMaxOnDevice(CudaGlobalPtr<T> &ptr)

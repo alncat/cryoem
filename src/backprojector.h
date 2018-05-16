@@ -28,6 +28,7 @@
 #ifndef BACKPROJECTOR_H_
 #define BACKPROJECTOR_H_
 
+#include <omp.h>
 #include "src/projector.h"
 #include "src/mask.h"
 #include "src/tabfuncs.h"
@@ -273,9 +274,17 @@ public:
                      bool is_whole_instead_of_half = false,
                      int nr_threads = 1,
                      int minres_map = -1,
-                     bool printTimes= false);
-
-
+                     bool printTimes= false,
+                     int do_tv = 0,
+                     int tv_iters = 20,
+                     RFLOAT l_r = 0.01,
+                     RFLOAT tv_alpha = 1,
+                     RFLOAT tv_beta = 1,
+                     void* devBundle = NULL);
+    //calculate the weighted gradient for graph reconstruction
+    void getRealSpaceGrads(FourierTransformer &transformer, MultidimArray<RFLOAT> &Mout, MultidimArray<RFLOAT>& real_grads, MultidimArray<RFLOAT>& Fweight);
+    //calculate the laplacian gradients
+    void getGraphGrads(MultidimArray<RFLOAT> &vol_in, MultidimArray<RFLOAT>& grads, RFLOAT tv_beta);
 	/*  Enforce Hermitian symmetry, apply helical symmetry as well as point-group symmetry
 	 */
 	void symmetrise(int nr_helical_asu = 1, RFLOAT helical_twist = 0., RFLOAT helical_rise = 0.);

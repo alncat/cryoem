@@ -1,0 +1,84 @@
+Determining if the pthread_create exist failed with the following output:
+Change Dir: /home/zluo/work/relion/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_544b5/fast"
+/usr/bin/make -f CMakeFiles/cmTC_544b5.dir/build.make CMakeFiles/cmTC_544b5.dir/build
+make[1]: Entering directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_544b5.dir/CheckSymbolExists.c.o
+/usr/bin/cc    -fPIC    -o CMakeFiles/cmTC_544b5.dir/CheckSymbolExists.c.o   -c /home/zluo/work/relion/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c
+Linking C executable cmTC_544b5
+/usr/local/bin/cmake -E cmake_link_script CMakeFiles/cmTC_544b5.dir/link.txt --verbose=1
+/usr/bin/cc  -fPIC     CMakeFiles/cmTC_544b5.dir/CheckSymbolExists.c.o  -o cmTC_544b5 -rdynamic 
+CMakeFiles/cmTC_544b5.dir/CheckSymbolExists.c.o: In function `main':
+CheckSymbolExists.c:(.text+0x1b): undefined reference to `pthread_create'
+collect2: error: ld returned 1 exit status
+make[1]: *** [cmTC_544b5] Error 1
+make[1]: Leaving directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+make: *** [cmTC_544b5/fast] Error 2
+
+File /home/zluo/work/relion/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
+/* */
+#include <pthread.h>
+
+int main(int argc, char** argv)
+{
+  (void)argv;
+#ifndef pthread_create
+  return ((int*)(&pthread_create))[argc];
+#else
+  (void)argc;
+  return 0;
+#endif
+}
+
+Determining if the function pthread_create exists in the pthreads failed with the following output:
+Change Dir: /home/zluo/work/relion/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_cccc3/fast"
+/usr/bin/make -f CMakeFiles/cmTC_cccc3.dir/build.make CMakeFiles/cmTC_cccc3.dir/build
+make[1]: Entering directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_cccc3.dir/CheckFunctionExists.c.o
+/usr/bin/cc    -fPIC -DCHECK_FUNCTION_EXISTS=pthread_create   -o CMakeFiles/cmTC_cccc3.dir/CheckFunctionExists.c.o   -c /usr/local/share/cmake-3.5/Modules/CheckFunctionExists.c
+Linking C executable cmTC_cccc3
+/usr/local/bin/cmake -E cmake_link_script CMakeFiles/cmTC_cccc3.dir/link.txt --verbose=1
+/usr/bin/cc  -fPIC -DCHECK_FUNCTION_EXISTS=pthread_create    CMakeFiles/cmTC_cccc3.dir/CheckFunctionExists.c.o  -o cmTC_cccc3 -rdynamic -lpthreads 
+/usr/bin/ld: cannot find -lpthreads
+collect2: error: ld returned 1 exit status
+make[1]: *** [cmTC_cccc3] Error 1
+make[1]: Leaving directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+make: *** [cmTC_cccc3/fast] Error 2
+
+
+Determining if the __sincos exist failed with the following output:
+Change Dir: /home/zluo/work/relion/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_57fbb/fast"
+/usr/bin/make -f CMakeFiles/cmTC_57fbb.dir/build.make CMakeFiles/cmTC_57fbb.dir/build
+make[1]: Entering directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+Building CXX object CMakeFiles/cmTC_57fbb.dir/CheckSymbolExists.cxx.o
+/usr/bin/c++      -o CMakeFiles/cmTC_57fbb.dir/CheckSymbolExists.cxx.o -c /home/zluo/work/relion/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx
+Linking CXX executable cmTC_57fbb
+/usr/local/bin/cmake -E cmake_link_script CMakeFiles/cmTC_57fbb.dir/link.txt --verbose=1
+/usr/bin/c++        CMakeFiles/cmTC_57fbb.dir/CheckSymbolExists.cxx.o  -o cmTC_57fbb -rdynamic 
+CMakeFiles/cmTC_57fbb.dir/CheckSymbolExists.cxx.o: In function `main':
+CheckSymbolExists.cxx:(.text+0x16): undefined reference to `__sincos'
+collect2: error: ld returned 1 exit status
+make[1]: *** [cmTC_57fbb] Error 1
+make[1]: Leaving directory `/home/zluo/work/relion/build/CMakeFiles/CMakeTmp'
+make: *** [cmTC_57fbb/fast] Error 2
+
+File /home/zluo/work/relion/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx:
+/* */
+#include <math.h>
+
+int main(int argc, char** argv)
+{
+  (void)argv;
+#ifndef __sincos
+  return ((int*)(&__sincos))[argc];
+#else
+  (void)argc;
+  return 0;
+#endif
+}
+

@@ -20,17 +20,17 @@ static void CufftHandleError( cufftResult err, const char *file, int line )
 		raise(SIGSEGV);
     }
 }
-
-class CudaFFT
+template<bool CustomAlloc=true>
+class CudaFFTT
 {
 	bool planSet;
 public:
 #ifdef CUDA_DOUBLE_PRECISION
-	CudaGlobalPtr<cufftDoubleReal> reals;
-	CudaGlobalPtr<cufftDoubleComplex> fouriers;
+	CudaGlobalPtr<cufftDoubleReal, CustomAlloc> reals;
+	CudaGlobalPtr<cufftDoubleComplex, CustomAlloc> fouriers;
 #else
-	CudaGlobalPtr<cufftReal> reals;
-	CudaGlobalPtr<cufftComplex> fouriers;
+	CudaGlobalPtr<cufftReal, CustomAlloc> reals;
+	CudaGlobalPtr<cufftComplex, CustomAlloc> fouriers;
 #endif
 	cufftHandle cufftPlanForward, cufftPlanBackward;
 	int direction;
@@ -42,7 +42,7 @@ public:
 	CudaCustomAllocator *CFallocator;
 	int batchSpace, batchIters, reqN;
 
-	CudaFFT(cudaStream_t stream, CudaCustomAllocator *allocator, int transformDimension = 2):
+	CudaFFTT(cudaStream_t stream, CudaCustomAllocator *allocator, int transformDimension = 2):
 		reals(stream, allocator),
 		fouriers(stream, allocator),
 		cufftPlanForward(0),
@@ -296,7 +296,11 @@ public:
 			CRITICAL(ERRCUFFTDIRR);
 		}
 		HANDLE_CUFFT_ERROR( cufftExecC2R(cufftPlanBackward, ~fouriers, ~reals) );
-	}
+    }
+
+    void backward(CudaGlobalPtr<cufftReal, CustomAlloc> &dst)
+    { HANDLE_CUFFT_ERROR( cufftExecC2R(cufftPlanBackward, ~fouriers, ~dst) ); }
+
 
 #endif
 
@@ -314,8 +318,9 @@ public:
 		}
 	}
 
-	~CudaFFT()
+	~CudaFFTT()
 	{clear();}
 };
 
+typedef CudaFFTT<> CudaFFT;
 #endif

@@ -12,7 +12,7 @@ if(POLICY CMP0042)
     cmake_policy(SET CMP0042 NEW)
 endif()
 
-# Add the path to the additional Find<module>.cmake files 
+# Add the path to the additional Find<module>.cmake files
 # which are included with the distributed RLEION-code
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -48,17 +48,17 @@ endif(NOT APPLE)
 # ---------------------------------------------------------SET SPECIFIC BUILD TYPE--
 if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "")
 	string( TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER )
-	
+
 	if( ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "none" ) AND
-	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "release" ) AND 
+	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "release" ) AND
 	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "debug" ) AND
-	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "relwithdebinfo" ) AND 
-	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "profiling" )  AND 
+	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "relwithdebinfo" ) AND
+	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "profiling" )  AND
 	    ( NOT ${CMAKE_BUILD_TYPE_LOWER} STREQUAL "benchmarking" ) )
 	     message( FATAL_ERROR "CMAKE_BUILD_TYPE : '${CMAKE_BUILD_TYPE}' is not a valid build type. "
 		"Valid options are: 'None', 'Release', 'Debug', 'RelWithDebInfo', and 'Profiling'." )
 	endif()
-	
+
 	message(STATUS "BUILD TYPE set to '${CMAKE_BUILD_TYPE}'")
 	SET(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "Choose the type of
 build, options are: 'None', 'Release', 'Debug', 'RelWithDebInfo', and 'Profiling'.")
@@ -86,7 +86,7 @@ option(CudaTexture "CudaTexture" ON)
 
 # -----------------------------------------------DOUBLE PRECISION (CUDA-CODE) OR NOT--
 if(DoublePrec_CPU)
-    message(STATUS "Setting cpu precision to double")    
+    message(STATUS "Setting cpu precision to double")
 else(DoublePrec_CPU)
     message(STATUS "Setting cpu precision to single")
     add_definitions(-DRELION_SINGLE_PRECISION)
@@ -104,6 +104,14 @@ endif(DoublePrec_GPU)
  #This *has* to be AFTER project()
 include(${CMAKE_SOURCE_DIR}/cmake/BuildTypes.cmake)
 
+#enbale openmp
+find_package(OpenMP)
+if (OPENMP_FOUND)
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+endif()
+
 if(CUDA)
     # -----------------------------------------------------------------------------CUDA--
     # DOC: http://www.cmake.org/cmake/help/v3.0/module/FindCUDA.html
@@ -119,7 +127,7 @@ if(CUDA_FOUND)
 		message(WARNING "Cuda version is less than 7.0, so relion will be compiled without GPU support.")
 		set(CUDA OFF)
     endif()
-    
+
     if(CUDA)
     	add_definitions(-DCUDA)
     endif()
@@ -185,9 +193,9 @@ if(GUI)
 				message(STATUS "FLTK_LIBRARIES: ${FLTK_LIBRARIES}")
 		    else()
 		        message(STATUS "FLTK was NOT found")
-		    endif() 
+		    endif()
         endif(NOT FORCE_OWN_FLTK)
-        
+
 	if(NOT FLTK_FOUND)
             include(${CMAKE_SOURCE_DIR}/cmake/BuildFLTK.cmake)
             set(INSTALL_OWN_FLTK 1)
@@ -199,7 +207,7 @@ if(GUI)
         message( STATUS " You CAN add the flag -DGUI=OFF to avoid using X11" )
         message(FATAL_ERROR "X11 is required for GUI.")
     endif(X11_FOUND)
-    
+
 endif(GUI)
 
 # ------------------------------------------------------------------------------FFTW--
@@ -208,7 +216,7 @@ option(FORCE_OWN_FFTW "FORCE_OWN_FFTW" OFF)
 if(NOT FORCE_OWN_FFTW)
 	FIND_PACKAGE(FFTW)
 endif(NOT FORCE_OWN_FFTW)
-	
+
 if(NOT FFTW_FOUND)
 	include(${CMAKE_SOURCE_DIR}/cmake/BuildFFTW.cmake)
 endif(NOT FFTW_FOUND)
@@ -230,7 +238,7 @@ if(FORCE_OWN_FFTW)
     install(DIRECTORY external/fftw/lib/ DESTINATION lib FILES_MATCHING PATTERN "*")
 endif()
 
-list(APPEND RELION_SCRIPT_FILES star_printtable 
+list(APPEND RELION_SCRIPT_FILES star_printtable
                                 star_plottable
                                 star_loopheader
                                 star_datablock_stack
@@ -239,11 +247,11 @@ list(APPEND RELION_SCRIPT_FILES star_printtable
                                 qsub.csh)
 
 add_custom_target(copy_scripts ALL)
-                                
+
 foreach (SCRIPT_FILE ${RELION_SCRIPT_FILES})
     add_custom_command(TARGET copy_scripts POST_BUILD
                      COMMAND ${CMAKE_COMMAND} -E
-                     copy ${CMAKE_SOURCE_DIR}/scripts/${SCRIPT_FILE} 
+                     copy ${CMAKE_SOURCE_DIR}/scripts/${SCRIPT_FILE}
                      ${CMAKE_BINARY_DIR}/bin/relion_${SCRIPT_FILE} )
 endforeach()
 install( DIRECTORY ${CMAKE_BINARY_DIR}/bin
@@ -263,14 +271,14 @@ option(BUILD_SHARED_LIBS "BUILD_SHARED_LIBS" ON)
 if(BUILD_SHARED_LIBS)
     message(STATUS "Building shared libs (smaller build size and binaries)")
 else()
-    message(STATUS "Building static libs (larger build size and binaries)")    
+    message(STATUS "Building static libs (larger build size and binaries)")
 endif()
 
 
 ADD_SUBDIRECTORY(src/apps)
 
 # -----------------------------------------------------------------------------TESTS--
-# Include testing flag(s) as precomiler 
+# Include testing flag(s) as precomiler
 # definitions and include test directives
 enable_testing()
 include(${CMAKE_SOURCE_DIR}/tests/RelionTests.cmake)

@@ -771,6 +771,18 @@ __global__ void cuda_kernel_multi( XFLOAT *A,
 		OUT[pixel] = A[pixel]*B[pixel]*S;
 }
 
+__global__ void cuda_kernel_complex_multi( XFLOAT *A,
+                                   XFLOAT *B,
+                                   XFLOAT S,
+                                   int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size) {
+        A[pixel*2] *= B[pixel]*S;
+        A[pixel*2+1] *= B[pixel]*S;
+    }
+}
+
 __global__ void cuda_kernel_batch_multi( XFLOAT *A,
 								   XFLOAT *B,
 								   XFLOAT *OUT,
@@ -780,6 +792,370 @@ __global__ void cuda_kernel_batch_multi( XFLOAT *A,
 	int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
 	if(pixel<image_size)
 		OUT[pixel + blockIdx.y*image_size] = A[pixel + blockIdx.y*image_size]*B[pixel + blockIdx.y*image_size]*S;
+}
+
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                     XFLOAT *B,
+                                     int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size) {
+        A[pixel] -= B[pixel];
+    }
+}
+
+__global__ void cuda_kernel_update_momentum(XFLOAT *grads,
+                                            XFLOAT *momentum,
+                                            XFLOAT mu,
+                                            XFLOAT l_r,
+                                            int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT tmp = momentum[pixel];
+        momentum[pixel] = mu*momentum[pixel] - l_r*grads[pixel];
+        grads[pixel] = tmp;
+    }
+}
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *momentum,
+                                           XFLOAT *grads,
+                                           XFLOAT mu,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT th = l_r*alpha/(eps+img[pixel]);
+        XFLOAT tmp = momentum[pixel];
+        XFLOAT n_momentum = mu*tmp - l_r*grads[pixel];
+        momentum[pixel] = n_momentum;
+        grads[pixel] = img[pixel];
+        img[pixel] += n_momentum + mu*(n_momentum - tmp);
+        if(img[pixel] < th && img[pixel] > -th){
+            img[pixel] = 0.;
+        } else {
+            if(img[pixel] >= th){
+                img[pixel] -= th;
+            } else {
+                img[pixel] += th;
+            }
+        }
+        grads[pixel] -= img[pixel];
+    }
+}
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT eps,
+                                       int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT val = img[pixel];
+        int i = pixel/X;
+        int j = pixel - i*X;
+        int hY = Y>>1;
+        int hX = X>>1;
+        XFLOAT tmp = 0.;
+        int il = i + hY;
+        int jl = j + hX;
+        if (il >= Y) il -= Y;
+        if (jl >= X) jl -= X;
+        il -= hY;
+        jl -= hX;
+        XFLOAT norm = 0.;
+        XFLOAT gtmp = 0.;
+        if( il < hY - 1){
+            int ipp = il + 1;
+            if(il < -1) ipp += Y;
+            int loc = ipp*X + j;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if( jl < hX - 1){
+            int jpp = jl + 1;
+            if(jl < -1) jpp += X;
+            int loc = i*X + jpp;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if(norm > eps*eps){
+            tmp /= sqrt(norm);
+            gtmp += tmp*beta;
+        } else {
+            gtmp += tmp*beta/eps;
+        }
+        //got the norm of il - 1, jl
+        if( il > -hY ){
+            norm = 0.;
+            int ipm = il - 1;
+            if(il < 1) ipm += Y;
+            val = img[ipm*X + j];
+            tmp = img[pixel] - val;
+            norm = tmp*tmp;
+            if( jl < hX - 1){
+                int jpp = jl + 1;
+                if(jl < -1) jpp += X;
+                int loc = ipm*X + jpp;
+                XFLOAT img_loc = img[loc];
+                norm += (val - img_loc)*(val - img_loc);
+            }
+            if(norm > eps*eps){
+                tmp /= sqrt(norm);
+                gtmp += tmp*beta;
+            } else {
+                gtmp += tmp*beta/eps;
+            }
+        }
+        //got the norm of il, jl - 1
+        if( jl > -hX ){
+            int jpm = jl - 1;
+            if(jl < 1) jpm += X;
+            val = img[i*X + jpm];
+            tmp = img[pixel] - val;
+            norm = tmp*tmp;
+            if( il < hY - 1){
+                int ipp = il + 1;
+                if(il < -1) ipp += X;
+                int loc = ipp*X + jpm;
+                XFLOAT img_loc = img[loc];
+                norm += (val - img_loc)*(val - img_loc);
+            }
+            if(norm > eps*eps){
+                tmp /= sqrt(norm);
+                gtmp += tmp*beta;
+            } else {
+                gtmp += tmp*beta/eps;
+            }
+        }
+        grads[pixel] += gtmp;
+        //if( ip > -hY)
+        //{
+        //    int ipp = ip - 1;
+        //    if(ip < 1) ipp += Y;
+        //    int loc = ipp*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( ip < hY - 1)
+        //{
+        //    int ipp = ip + 1;
+        //    if(ip < -1) ipp += Y;
+        //    int loc = ipp*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( jp > -hX)
+        //{
+        //    int jpp = jp - 1;
+        //    if(jp < 1) jpp += X;
+        //    int loc = i*X + jpp;
+        //    tmp += val - img[loc];
+        //}
+        //if( jp < hX - 1)
+        //{
+        //    int jpp = jp + 1;
+        //    if(jp < -1) jpp += X;
+        //    int loc = i*X + jpp;
+        //    tmp += val - img[loc];
+        //}
+        //grads[pixel] += tmp*beta;
+    }
+
+}
+
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Z,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT epslog,
+                                       XFLOAT eps,
+                                       int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT val = img[pixel];
+        int k = pixel/(Y*X);
+        int i = (pixel - k*Y*X)/X;
+        int j = pixel - k*Y*X - i*X;
+        int hZ = Z>>1;
+        int hY = Y>>1;
+        int hX = X>>1;
+        XFLOAT tmp = 0.;
+        int kl = k + hZ;
+        int il = i + hY;
+        int jl = j + hX;
+        if (kl >= Z) kl -= Z;
+        if (il >= Y) il -= Y;
+        if (jl >= X) jl -= X;
+        kl -= hZ;
+        il -= hY;
+        jl -= hX;
+        XFLOAT norm = 0.;
+        XFLOAT gtmp = 0.;
+        int kpp = kl + 1;
+        if(kl < -1) kpp += Z;
+        int ipp = il + 1;
+        if(il < -1) ipp += Y;
+        int jpp = jl + 1;
+        if(jl < -1) jpp += X;
+
+        if( kl < hZ - 1){
+            int loc = kpp*Y*X + i*X + j;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if( il < hY - 1){
+            int loc = k*Y*X + ipp*X + j;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if( jl < hX - 1){
+            int loc = k*Y*X + i*X + jpp;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if(norm > eps*eps){
+            norm = sqrt(norm);
+            tmp /= norm;
+            gtmp += tmp/(norm + epslog)*beta;
+        } else {
+            gtmp += tmp*beta/eps;
+        }
+        //got the norm of kl-1, il, jl
+        if( kl > -hZ ){
+            int kpm = kl - 1;
+            if(kl < 1) kpm += Z;
+            XFLOAT nval = img[kpm*Y*X + i*X + j];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( il < hY - 1){
+                int loc = kpm*Y*X + ipp*X + j;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if( jl < hX - 1){
+                int loc = kpm*Y*X + i*X + jpp;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if(norm > eps*eps){
+                norm = sqrt(norm);
+                tmp /= norm;
+                gtmp += tmp/(norm + epslog)*beta;
+            } else {
+                gtmp += tmp*beta/eps;
+            }
+        }
+        //got the norm of kl, il - 1, jl
+        if( il > -hY ){
+            norm = 0.;
+            int ipm = il - 1;
+            if(il < 1) ipm += Y;
+            XFLOAT nval = img[k*Y*X + ipm*X + j];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( kl < hZ - 1){
+                int loc = kpp*Y*X + ipm*X + j;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if( jl < hX - 1){
+                int loc = k*Y*X + ipm*X + jpp;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if(norm > eps*eps){
+                norm = sqrt(norm);
+                tmp /= norm;
+                gtmp += tmp/(norm + epslog)*beta;
+            } else {
+                gtmp += tmp*beta/eps;
+            }
+        }
+        //got the norm of kl, il, jl - 1
+        if( jl > -hX ){
+            int jpm = jl - 1;
+            if(jl < 1) jpm += X;
+            XFLOAT nval = img[k*Y*X + i*X + jpm];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( kl < hZ - 1){
+                int loc = kpp*Y*X + i*X + jpm;
+                norm += (nval - img[loc])*(nval - img[loc]);
+            }
+            if( il < hY - 1){
+                int loc = k*Y*X + ipp*X + jpm;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if(norm > eps*eps){
+                norm = sqrt(norm);
+                tmp /= norm;
+                gtmp += tmp/(norm + epslog)*beta;
+            } else {
+                gtmp += tmp*beta/eps;
+            }
+        }
+        grads[pixel] += gtmp;
+        //if( kp > -hZ)
+        //{
+        //    int kpp = kp - 1;
+        //    if(kp < 1) kpp += Z;
+        //    int loc = kpp*Y*X + i*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( kp < hZ - 1)
+        //{
+        //    int kpp = kp + 1;
+        //    if(kp < -1) kpp += Z;
+        //    int loc = kpp*Y*X + i*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( ip > -hY)
+        //{
+        //    int ipp = ip - 1;
+        //    if(ip < 1) ipp += Y;
+        //    int loc = k*Y*X + ipp*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( ip < hY - 1)
+        //{
+        //    int ipp = ip + 1;
+        //    if(ip < -1) ipp += Y;
+        //    int loc = k*Y*X + ipp*X + j;
+        //    tmp += val - img[loc];
+        //}
+        //if( jp > -hX)
+        //{
+        //    int jpp = jp - 1;
+        //    if(jp < 1) jpp += X;
+        //    int loc = k*Y*X + i*X + jpp;
+        //    tmp += val - img[loc];
+        //}
+        //if( jp < hX - 1)
+        //{
+        //    int jpp = jp + 1;
+        //    if(jp < -1) jpp += X;
+        //    int loc = k*Y*X + i*X + jpp;
+        //    tmp += val - img[loc];
+        //}
+        //grads[pixel] += tmp*beta;
+    }
+
 }
 
 __global__ void cuda_kernel_finalizeMstddev( XFLOAT *Mstddev,

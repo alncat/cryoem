@@ -1137,7 +1137,7 @@ public:
 	 * Copy a number (size) of bytes from device pointer to the provided new device pointer
 	 */
 	inline
-	void cp_on_device(CudaGlobalPtr<T> &devPtr)
+	void cp_on_device(CudaGlobalPtr<T, CustomAlloc> &devPtr)
 	{
 #ifdef DEBUG_CUDA
 		if (devPtr.size == 0)

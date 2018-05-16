@@ -97,6 +97,9 @@ public:
 	std::vector<void*> cudaOptimisers;
 	std::vector<void*> cudaDeviceBundles;
 
+    //the rank of this optimiser
+    int myRank;
+
 	// I/O Parser
 	IOParser parser;
 
