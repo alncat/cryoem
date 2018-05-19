@@ -46,6 +46,7 @@
 
 #include <pthread.h>
 #include <stdio.h>
+#include <random>
 #include <stdlib.h>
 #include "src/error.h"
 
@@ -285,7 +286,7 @@ public:
     size_t blockSize;
     //The number of tasks that have been assigned
     size_t assignedTasks;
-
+    
 public:
     //The total number of tasks to be distributed
     size_t numberOfTasks;
@@ -368,8 +369,14 @@ class ThreadTaskDistributor: public ParallelTaskDistributor
 {
 
 public:
+    //randomly accept or reject current batch
+    std::default_random_engine generator;
+    std::uniform_real_distribution<double> distribution;
+    double acceptFrac;//default acceptance ratio
 
 	ThreadTaskDistributor(size_t nTasks, size_t bSize):ParallelTaskDistributor(nTasks, bSize) {}
+    ThreadTaskDistributor(size_t nTasks, size_t bSize, double acceptance_ratio, int rank):ParallelTaskDistributor(nTasks, bSize),
+    acceptFrac(acceptance_ratio), generator(std::default_random_engine(rank)), distribution(std::uniform_real_distribution<double>(0.,1.)) {}
     virtual ~ThreadTaskDistributor(){};
 
 protected:

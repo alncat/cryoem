@@ -287,22 +287,37 @@ void ThreadTaskDistributor::unlock()
     mutex.unlock();
 }
 
+//bool ThreadTaskDistributor::distribute(size_t &first, size_t &last)
+//{
+//    bool result = true;
+//    first = last = 0;
+//    if (assignedTasks >= numberOfTasks)
+//    {
+//        result = false;
+//    }
+//    else
+//    {
+//        first = assignedTasks;
+//        assignedTasks
+//        = (assignedTasks + blockSize < numberOfTasks) ? (assignedTasks
+//                + blockSize) : numberOfTasks;
+//        last = assignedTasks - 1;
+//    }
+//    return result;
+//}
+
 bool ThreadTaskDistributor::distribute(size_t &first, size_t &last)
 {
     bool result = true;
     first = last = 0;
-    if (assignedTasks >= numberOfTasks)
-    {
-        result = false;
-    }
-    else
-    {
+    do {
         first = assignedTasks;
         assignedTasks
-        = (assignedTasks + blockSize < numberOfTasks) ? (assignedTasks
-                + blockSize) : numberOfTasks;
+            = (assignedTasks + blockSize < numberOfTasks) ? (assignedTasks
+                    + blockSize) : numberOfTasks;
         last = assignedTasks - 1;
-    }
+    } while(assignedTasks < numberOfTasks && distribution(generator) > acceptFrac);
+    if(assignedTasks >= numberOfTasks) result = false;
     return result;
 }
 

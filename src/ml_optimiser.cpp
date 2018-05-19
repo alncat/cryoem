@@ -425,6 +425,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 terms", "1"));
     mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for Graph L2 terms", "1"));
 	mymodel.nr_classes = textToInteger(parser.getOption("--K", "Number of references to be refined", "1"));
+    acceptance_ratio = textToDouble(parser.getOption("--acceptance_ratio", "The acceptance_ratio for sample random sampling", "1."));
     particle_diameter = textToFloat(parser.getOption("--particle_diameter", "Diameter of the circular mask that will be applied to the experimental images (in Angstroms)", "-1"));
 	do_zero_mask = parser.checkOption("--zero_mask","Mask surrounding background in particles to zero (by default the solvent area is filled with random noise)");
 	do_solvent = parser.checkOption("--flatten_solvent", "Perform masking on the references as well?");
@@ -2121,7 +2122,8 @@ void MlOptimiser::iterateSetup()
 	global_ThreadManager = new ThreadManager(nr_threads, this);
 
 	// Set up the thread task distributors for the particles and the orientations (will be resized later on)
-	exp_ipart_ThreadTaskDistributor = new ThreadTaskDistributor(nr_threads, 1);
+	//exp_ipart_ThreadTaskDistributor = new ThreadTaskDistributor(nr_threads, 1);
+    exp_ipart_ThreadTaskDistributor = new ThreadTaskDistributor(nr_threads, 1, acceptance_ratio, myRank);
 
 }
 void MlOptimiser::iterateWrapUp()

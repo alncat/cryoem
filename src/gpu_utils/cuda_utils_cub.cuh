@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <vector>
+#include <math.h>
 // Because thrust uses CUB, thrust defines CubLog and CUB tries to redefine it,
 // resulting in warnings. This avoids those warnings.
 #if(defined(CubLog) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__<= 520)) // Intetionally force a warning for new arch
@@ -393,6 +394,15 @@ struct MoreThanCubOpt
 	__device__ __forceinline__
 	bool operator()(const T &a) const {
 		return (a > compare);
+	}
+};
+
+template <typename T>
+struct IsNanOp
+{
+	__device__ __forceinline__
+	bool operator()(const T &a) const {
+		return isnan(a);
 	}
 };
 

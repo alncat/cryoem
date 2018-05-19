@@ -32,14 +32,18 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 	//threadid
 	int tid = threadIdx.x;
 
-	int pos, iorient = bid*SUMW_BLOCK_SIZE+tid;
+	//int pos, iorient = bid*SUMW_BLOCK_SIZE+tid;
+    int iorient =  bid*SUMW_BLOCK_SIZE + tid;
 
 	weights_t weight;
-	if(iorient<nr_coarse_orient)
+	if(iorient < nr_coarse_orient)
 	{
 		for (int itrans=0; itrans<nr_coarse_trans; itrans++)
 		{
-			pos = cid * nr_coarse_orient * nr_coarse_trans + iorient * nr_coarse_trans + itrans;
+			//int pos = cid * nr_coarse_orient * nr_coarse_trans + iorient * nr_coarse_trans + itrans;
+            iorient += cid*nr_coarse_orient;//the index for this orientation in the cid class
+            int pos = iorient*nr_coarse_trans + itrans;
+            int citrans = cid * nr_coarse_trans + itrans;//the index for this translation in the cid class
 			weights_t diff2 = g_Mweight[pos];
 			if( diff2 < min_diff2 ) //TODO Might be slow (divergent threads)
 				weight = (weights_t)0.0;
@@ -47,7 +51,7 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 			{
 				//diff2 -= avg_diff2;
                 diff2 -= min_diff2;
-				weight = g_pdf_orientation[iorient] * g_pdf_offset[itrans];          	// Same for all threads - TODO: should be done once for all trans through warp-parallel execution
+				weight = g_pdf_orientation[iorient] * g_pdf_offset[citrans];          	// Same for all threads - TODO: should be done once for all trans through warp-parallel execution
 
 				if (failsafe && weight < FAILSAFE_PRIOR_MIN_LIM) //Prevent zero priors in fail-safe mode
 					weight = FAILSAFE_PRIOR_MIN_LIM;
@@ -59,7 +63,7 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 				else
 					weight *= exp(-diff2);
 #else
-				if (diff2 > 88.)
+				if (diff2 > 86.)
 					weight = 0.;
 				else
 					weight *= expf(-diff2);
@@ -389,6 +393,15 @@ __global__ void cuda_kernel_multi( XFLOAT *A,
 __global__ void cuda_kernel_substract(XFLOAT *A,
                                       XFLOAT *B,
                                       int image_size);
+template<typename T>
+__global__ void cuda_kernel_reset_nan(
+        T *A,
+        int A_size){
+    int pixel = blockIdx.x + threadIdx.x*BLOCK_SIZE;
+    if(pixel < A_size){
+        if(isnan(A[pixel])) A[pixel] = 0.;
+    }
+}
 
 /*
  * In place multiplies scalar array A by a scalar S

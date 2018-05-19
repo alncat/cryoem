@@ -1,1 +1,4 @@
 external/
+build/
+yes
+yes.pub

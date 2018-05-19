@@ -628,6 +628,7 @@ __global__ void cuda_kernel_allweights_to_mweights(
 	size_t idx = blockIdx.x * WEIGHT_MAP_BLOCK_SIZE + threadIdx.x;
 	if (idx < orientation_num*translation_num)
 		d_mweights[d_iorient[idx/translation_num] * translation_num + idx%translation_num] =
+        //d_mweights[idx/translation_num] = 
 				d_allweights[idx/translation_num * translation_num + idx%translation_num];
 }
 
@@ -650,6 +651,24 @@ void mapAllWeightsToMweights(
 	LAUNCH_HANDLE_ERROR(cudaGetLastError());
 }
 
+void compareWeights(
+		unsigned long * d_iorient, //projectorPlan.iorientclasses
+		XFLOAT * d_allweights, //allWeights
+		XFLOAT * d_mweights, //Mweight
+		unsigned long orientation_num, //projectorPlan.orientation_num
+		unsigned long translation_num, //translation_num
+		cudaStream_t stream
+		)
+{
+	int grid_size = ceil((float)(orientation_num*translation_num)/(float)WEIGHT_MAP_BLOCK_SIZE);
+	cuda_kernel_allweights_to_mweights<<< grid_size, WEIGHT_MAP_BLOCK_SIZE, 0, stream >>>(
+			d_iorient,
+			d_allweights,
+			d_mweights,
+			orientation_num,
+			translation_num);
+	LAUNCH_HANDLE_ERROR(cudaGetLastError());
+}
 
 size_t findThresholdIdxInCumulativeSum(CudaGlobalPtr<XFLOAT> &data, XFLOAT threshold)
 {

@@ -97,6 +97,9 @@ public:
 	std::vector<void*> cudaOptimisers;
 	std::vector<void*> cudaDeviceBundles;
 
+    //stochastic sampling ratio
+    RFLOAT acceptance_ratio;
+
     //the rank of this optimiser
     int myRank;
 

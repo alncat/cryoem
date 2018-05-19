@@ -307,7 +307,8 @@ void CudaProjectorPlan::setup(
 			bool do_proceed(false);
 
 			TIMING_TIC(TIMING_PROC_CALC);
-			if (coarse && pdf_orientation > 0.)
+			//if (coarse && pdf_orientation > 0.)
+            if (coarse)
 				do_proceed = true;
 			else if (pdf_orientation > 0.)
 			{

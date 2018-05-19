@@ -54,7 +54,7 @@ __global__ void cuda_kernel_exponentiate_weights_fine(
 				else
 					s_weights[tid] = prior * exp(-diff2);
 	#else
-				if (diff2 > 88.)
+				if (diff2 > 86.)
 					s_weights[tid] = 0.f;
 				else
 					s_weights[tid] = prior * expf(-diff2);
