@@ -344,7 +344,7 @@ void MlOptimiser::parseContinue(int argc, char **argv)
 	}
 #endif
 	double temp_reqSize = textToDouble(parser.getOption("--free_gpu_memory", "GPU device memory (in Mb) to leave free after allocation.", "0"));
-	temp_reqSize *= 1000*1000;
+	temp_reqSize *= 1024*1024;
 	if(temp_reqSize<0)
 		REPORT_ERROR("Invalid free_gpu_memory value.");
 	else
@@ -419,11 +419,14 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     nr_iter = textToInteger(parser.getOption("--iter", "Maximum number of iterations to perform", "50"));
     mymodel.pixel_size = textToFloat(parser.getOption("--angpix", "Pixel size (in Angstroms)", "-1"));
 	mymodel.tau2_fudge_factor = textToFloat(parser.getOption("--tau2_fudge", "Regularisation parameter (values higher than 1 give more weight to the data)", "1"));
-    mymodel.do_tv = textToInteger(parser.getOption("--do_tv", "Toggle graph net based reconstruction", "0"));
-    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in graph net based reconstruction", "20"));
-    mymodel.l_r = textToFloat(parser.getOption("--tv_lr", "Learning rate for graph net based reconstrunction", "0.01"));
-    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 terms", "1"));
-    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for Graph L2 terms", "1"));
+    //mymodel.do_tv = textToInteger(parser.getOption("--do_tv", "Toggle graph net based reconstruction", "0"));
+    mymodel.do_tv = parser.checkOption("--tv", "Using total variation based regularization");
+
+    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in graph net based reconstruction", "100"));
+    mymodel.l_r = textToFloat(parser.getOption("--tv_lr", "Learning rate for graph net based reconstrunction", "1"));
+    mymodel.tv_weight = textToFloat(parser.getOption("--tv_weight", "Weight for implicit regularisation parameter", "0.2"));
+    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 terms", "0.1"));
+    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for Graph L2 terms", "0.1"));
 	mymodel.nr_classes = textToInteger(parser.getOption("--K", "Number of references to be refined", "1"));
     acceptance_ratio = textToDouble(parser.getOption("--acceptance_ratio", "The acceptance_ratio for sample random sampling", "1."));
     particle_diameter = textToFloat(parser.getOption("--particle_diameter", "Diameter of the circular mask that will be applied to the experimental images (in Angstroms)", "-1"));
@@ -547,6 +550,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
 	// SGD stuff
 	int sgd_section = parser.addSection("Stochastic Gradient Descent");
 	do_sgd = parser.checkOption("--sgd", "Perform stochastic gradient descent instead of default expectation-maximization");
+    do_nag = parser.checkOption("--nag", "Perform accelerated gradient descent");
 	mu = textToFloat(parser.getOption("--mu", "Momentum parameter for SGD updates", "0.9"));
 	subset_size = textToInteger(parser.getOption("--subset_size", "Size of the subsets for SGD", "-1"));
 	sgd_stepsize = textToFloat(parser.getOption("--sgd_stepsize", "Step size parameter for SGD updates", "0.5"));
@@ -579,7 +583,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
 	}
 #endif
 	double temp_reqSize = textToDouble(parser.getOption("--free_gpu_memory", "GPU device memory (in Mb) to leave free after allocation.", "0"));
-	temp_reqSize *= 1000*1000;
+	temp_reqSize *= 1024*1024;
 	if(temp_reqSize<0)
 		REPORT_ERROR("Invalid free_gpu_memory value.");
 	else
@@ -1366,7 +1370,7 @@ void MlOptimiser::initialiseGeneral(int rank)
 		// Read in the reference(s) and initialise mymodel
 		int refdim = (fn_ref == "denovo") ? 3 : 2;
 		mymodel.readImages(fn_ref, is_3d_model, ori_size, mydata,
-				do_average_unaligned, do_generate_seeds, refs_are_ctf_corrected, do_sgd);
+				do_average_unaligned, do_generate_seeds, refs_are_ctf_corrected, do_sgd, do_nag);
 
     	// Check consistency of EMDL_CTF_MAGNIFICATION and MEBL_CTF_DETECTOR_PIXEL_SIZE with mymodel.pixel_size
     	RFLOAT mag, dstep, first_angpix, my_angpix;
@@ -1719,6 +1723,9 @@ void MlOptimiser::initialiseGeneral(int rank)
 	{
 	    mu = 0.;
 	}
+    if(do_nag) {
+        mu = 0.;
+    }
 
 #ifdef DEBUG
 	std::cerr << "Leaving initialiseGeneral" << std::endl;
@@ -1900,7 +1907,8 @@ void MlOptimiser::calculateSumOfPowerSpectraAndAverageImage(MultidimArray<RFLOAT
 
 			// Calculate the power spectrum of this particle
 			CenterFFT(img(), true);
-   			transformer.FourierTransform(img(), Faux);
+            //!!!!!BUG!!!!!
+   			//transformer.FourierTransform(img(), Faux);
    			MultidimArray<RFLOAT> ind_spectrum, count;
    			ind_spectrum.initZeros(XSIZE(img()));
 			count.initZeros(XSIZE(img()));
@@ -1929,9 +1937,29 @@ void MlOptimiser::calculateSumOfPowerSpectraAndAverageImage(MultidimArray<RFLOAT
 				init_random_generator(random_seed + part_id);
 				// Randomize the initial orientations for initial reference generation at this step....
 				// TODO: this is not an even angular distribution....
+                // generate quoternion
+                //RFLOAT ui = rnd_unif();
+                //RFLOAT uj = rnd_unif();
+                //RFLOAT uk = rnd_unif();
+                //RFLOAT q[4] = {std::sqrt(1-ui)*std::sin(2*M_PI*uj), std::sqrt(1-ui)*std::cos(2*M_PI*uj), std::sqrt(ui)*std::sin(2*M_PI*uk), std::sqrt(ui)*std::cos(2*M_PI*uk)};
 				RFLOAT rot  = (mymodel.ref_dim == 2) ? 0. : rnd_unif() * 360.;
 				RFLOAT tilt = (mymodel.ref_dim == 2) ? 0. :rnd_unif() * 180.;
 				RFLOAT psi  = rnd_unif() * 360.;
+                //if(mymodel.ref_dim == 3){
+                //    //roll (x-axis rotation)
+                //    double sinr = +2.0 * (q[2] * q[3] - q[0] * q[1]);
+                //    double cosr = 2.0 * (q[1] * q[3] + q[0] * q[2]);
+                //    rot = atan2(sinr, cosr)/M_PI*180;
+
+                //    // pitch (y-axis rotation)
+                //    double sinp = q[0] * q[0] - q[1] * q[1] - q[2]*q[2] + q[3] * q[3];
+                //    tilt = acos(sinp)/M_PI*180;
+
+                //    // yaw (z-axis rotation)
+                //    double siny = +2.0 * (q[2] * q[3] + q[0] * q[1]);
+                //    double cosy = - 2.0 * (q[1] * q[3] - q[0] * q[2]);  
+                //    psi = atan2(siny, cosy)/M_PI*180;
+                //}
 				int iclass  = rnd_unif() * mymodel.nr_classes;
 				Matrix2D<RFLOAT> A;
 				Euler_angles2matrix(rot, tilt, psi, A, true);
@@ -1953,6 +1981,7 @@ void MlOptimiser::calculateSumOfPowerSpectraAndAverageImage(MultidimArray<RFLOAT
 						DIRECT_MULTIDIM_ELEM(Fctf, n) *= DIRECT_MULTIDIM_ELEM(Fctf, n);
 					}
 				}
+                //if(iclass == 0) std::cout << "set zero class" << std::endl;
 				(wsum_model.BPref[iclass]).set2DFourierTransform(Fimg, A, IS_NOT_INV, &Fctf);
 			}
 
@@ -3629,6 +3658,8 @@ void MlOptimiser::maximizationOtherParameters()
 	for (int iclass = 0; iclass < mymodel.nr_classes; iclass++)
 		sum_weight += wsum_model.pdf_class[iclass];
 
+    //update mu factor if using nag optimiser
+    
 	// Update average norm_correction
 	if (do_norm_correction)
 	{
@@ -3838,6 +3869,14 @@ void MlOptimiser::maximizationOtherParameters()
 
 	}
 	RCTOC(timer,RCT_8);
+    
+    if(do_nag){
+        //mu = (wsum_model.nag_counter - 1)/wsum_model.nag_counter;
+        mymodel.nag_counter++;
+        mu = 1. - 1./pow(mymodel.nag_counter, 0.6);
+        std::cout << "mu changed to " << mu << " " << mymodel.nag_counter << std::endl;
+    }
+
 #ifdef DEBUG
 	std::cerr << "Leaving maximizationOtherParameters" << std::endl;
 #endif
@@ -7852,6 +7891,8 @@ void MlOptimiser::updateAngularSampling(bool myverb)
 
 			if (new_hp_order != sampling.healpix_order)
 			{
+                //reset nag counter
+                //wsum_model.nag_counter = 1;
 				// Set the new sampling in the sampling-object
 				sampling.setOrientations(new_hp_order, new_ang_step * std::pow(2., adaptive_oversampling));
 				// Resize the pdf_direction arrays to the correct size and fill with an even distribution
@@ -7943,6 +7984,9 @@ void MlOptimiser::updateAngularSampling(bool myverb)
 
 					// Also reset the nr_directions in wsum_model
 					wsum_model.nr_directions = mymodel.nr_directions;
+
+                    //reset nag counter
+                    //wsum_model.nag_counter = 1;
 
 					// Also resize and initialise wsum_model.pdf_direction for each class!
 					for (int iclass=0; iclass < mymodel.nr_classes; iclass++)
@@ -8042,6 +8086,8 @@ void MlOptimiser::checkConvergence(bool myverb)
 
             if (has_converged)
             {
+                //update acceptance ratio to 1 once converged
+                acceptance_ratio = 1.0;
 		std::cout << " Auto-refine: Refinement has converged, entering last iteration where two halves will be combined..."<<std::endl;
 		std::cout << " Auto-refine: The last iteration will use data to Nyquist frequency, which may take more CPU and RAM."<<std::endl;
             }

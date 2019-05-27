@@ -29,7 +29,7 @@
 #define TIMING_TOC(id)
 #endif
 
-void MlModel::initialise(bool _do_sgd)
+void MlModel::initialise(bool _do_sgd, bool _do_nag)
 {
 
 	// Auxiliary vector with relevant size in Fourier space
@@ -77,8 +77,17 @@ void MlModel::initialise(bool _do_sgd)
     PPref.resize(nr_classes * nr_bodies, ref);
 
     do_sgd = _do_sgd;
-    if (do_sgd)
+    do_nag = _do_nag;
+    nag_counter = 1;
+
+    if (do_sgd || do_nag)
     	Igrad.resize(nr_classes);
+    if (do_nag) {
+        for(int i = 0; i < nr_classes*nr_bodies; i++){
+            weight_old.push_back(MultidimArray<RFLOAT>());
+            data_old.push_back(MultidimArray<Complex>());
+        }
+    }
 
 }
 
@@ -636,7 +645,7 @@ void  MlModel::readTauSpectrum(FileName fn_tau, int verb)
 
 // Reading images from disc
 void MlModel::readImages(FileName fn_ref, bool _is_3d_model, int _ori_size, Experiment &_mydata,
-			bool &do_average_unaligned, bool &do_generate_seeds, bool &refs_are_ctf_corrected, bool _do_sgd)
+			bool &do_average_unaligned, bool &do_generate_seeds, bool &refs_are_ctf_corrected, bool _do_sgd, bool _do_nag)
 {
 
 	// Set some stuff
@@ -755,7 +764,7 @@ void MlModel::readImages(FileName fn_ref, bool _is_3d_model, int _ori_size, Expe
 		}
 	}
 
-	initialise(_do_sgd);
+	initialise(_do_sgd, _do_nag);
 
 	// Now set the group names from the Experiment groups list
 	for (int i=0; i< nr_groups; i++)
@@ -880,7 +889,8 @@ void MlModel::setFourierTransformMaps(bool update_tau2_spectra, int nr_threads, 
 
         if (update_tau2_spectra)
         {
-        	PPref[iclass].computeFourierTransformMap(Irefp, tau2_class[iclass], current_size, nr_threads, true, do_heavy);
+            //cancel gridding
+        	PPref[iclass].computeFourierTransformMap(Irefp, tau2_class[iclass], current_size, nr_threads, false, do_heavy);
         }
         else
         {

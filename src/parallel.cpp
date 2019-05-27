@@ -316,7 +316,7 @@ bool ThreadTaskDistributor::distribute(size_t &first, size_t &last)
             = (assignedTasks + blockSize < numberOfTasks) ? (assignedTasks
                     + blockSize) : numberOfTasks;
         last = assignedTasks - 1;
-    } while(assignedTasks < numberOfTasks && distribution(generator) > acceptFrac);
+    } while(assignedTasks < numberOfTasks && rand() > acceptFrac*RAND_MAX);
     if(assignedTasks >= numberOfTasks) result = false;
     return result;
 }
@@ -327,15 +327,18 @@ long int divide_equally(long int N, int size, int rank, long int &first, long in
 {
     long int jobs_per_worker = N / size;
     long int jobs_resting = N % size;
-    if (rank < jobs_resting)
+    //if (rank < jobs_resting)
+    if(jobs_resting) jobs_per_worker++;
+    if(rank < size - 1)
     {
-        first = rank * (jobs_per_worker + 1);
-        last = first + jobs_per_worker;
+        first = rank * jobs_per_worker;
+        last = first + jobs_per_worker - 1;
     }
     else
     {
-        first = rank * jobs_per_worker + jobs_resting;
-        last = first + jobs_per_worker - 1;
+        jobs_resting = N - (size - 1)*jobs_per_worker;
+        first = rank * jobs_per_worker;// + jobs_resting;
+        last = first + jobs_resting - 1;//jobs_per_worker - 1;
     }
     return last - first + 1;
 }

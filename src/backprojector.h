@@ -249,12 +249,34 @@ public:
 	 */
 	void getDownsampledAverage(MultidimArray<Complex > &avg);
 
+    void getDownsampledAverage(MultidimArray<Complex > &avg, MultidimArray<RFLOAT>& weight, MultidimArray<Complex>& data);
+
 	/*
 	 * From two of the straightforward downsampled averages, calculate an FSC curve
 	 */
 	void calculateDownSampledFourierShellCorrelation(MultidimArray<Complex > &avg1,
 			                                         MultidimArray<Complex > &avg2,
 			                                         MultidimArray<RFLOAT> &fsc);
+
+    void reconstruct(MultidimArray<RFLOAT> &vol_out,
+                     MultidimArray<RFLOAT> & grad_out,
+                     RFLOAT tau2_fudge,
+                     MultidimArray<RFLOAT> &tau2,
+                     MultidimArray<RFLOAT> &sigma2,
+                     MultidimArray<RFLOAT> &data_vs_prior,
+                     MultidimArray<RFLOAT> &fourier_coverage,
+                     MultidimArray<RFLOAT> fsc, // only input
+                     RFLOAT normalise,
+                     bool update_tau2_with_fsc,
+                     bool is_whole_instead_of_half,
+                     bool do_nag,
+                     int nr_threads = 1,
+                     int minres_map = 0,
+                     int tv_iters = 200,
+                     RFLOAT l_r = 0.001,
+                     RFLOAT tv_alpha = 0.001,
+                     RFLOAT tv_beta = 0.001,
+                     void* devBundle = NULL);
 
 	/* Get the 3D reconstruction
          * If do_map is true, 1 will be added to all weights
@@ -275,11 +297,12 @@ public:
                      int nr_threads = 1,
                      int minres_map = -1,
                      bool printTimes= false,
-                     int do_tv = 0,
+                     bool do_tv = false,
                      int tv_iters = 20,
                      RFLOAT l_r = 0.01,
                      RFLOAT tv_alpha = 1,
                      RFLOAT tv_beta = 1,
+                     RFLOAT tv_weight = 1,
                      void* devBundle = NULL);
     //calculate the weighted gradient for graph reconstruction
     void getRealSpaceGrads(FourierTransformer &transformer, MultidimArray<RFLOAT> &Mout, MultidimArray<RFLOAT>& real_grads, MultidimArray<RFLOAT>& Fweight);

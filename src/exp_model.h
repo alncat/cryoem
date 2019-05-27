@@ -342,6 +342,7 @@ public:
 	// for separate refinement of random halves of the data
 	void divideOriginalParticlesInRandomHalves(int seed, bool do_helical_refine = false);
 
+    void randomiseParticlesOrder(int seed);
 	// Randomise the order of the original_particles
 	void randomiseOriginalParticlesOrder(int seed, bool do_split_random_halves = false);
 

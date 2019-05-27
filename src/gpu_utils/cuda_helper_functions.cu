@@ -627,9 +627,9 @@ __global__ void cuda_kernel_allweights_to_mweights(
 {
 	size_t idx = blockIdx.x * WEIGHT_MAP_BLOCK_SIZE + threadIdx.x;
 	if (idx < orientation_num*translation_num)
-		d_mweights[d_iorient[idx/translation_num] * translation_num + idx%translation_num] =
+		d_mweights[d_iorient[idx/translation_num] * translation_num + idx%translation_num] = d_allweights[idx];
         //d_mweights[idx/translation_num] = 
-				d_allweights[idx/translation_num * translation_num + idx%translation_num];
+				//d_allweights[idx/translation_num * translation_num + idx%translation_num];
 }
 
 void mapAllWeightsToMweights(

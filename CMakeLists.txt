@@ -38,10 +38,10 @@ if(NOT APPLE)
 
 
     # the RPATH to be used when installing, but only if it's not a system directory
-    LIST(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
-    IF("${isSystemDir}" STREQUAL "-1")
-        SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-    ENDIF("${isSystemDir}" STREQUAL "-1")
+    #LIST(FIND CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES "${CMAKE_INSTALL_PREFIX}/lib" isSystemDir)
+    #IF("${isSystemDir}" STREQUAL "-1")
+    SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+    #ENDIF("${isSystemDir}" STREQUAL "-1")
 endif(NOT APPLE)
 
 # ---------------------------------------------------------SET SPECIFIC BUILD TYPE--
@@ -67,12 +67,16 @@ else()
 	string( TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER )
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+SET(CMAKE_C_COMPILER "${CMAKE_C_COMPILER} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g")
+SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -g")
+
 # ------------------OPTIONS WHICH ARE NEEDED TO SET BUILD-TYPES (COMPILATION FLAGS)--
 # ------------------------------------------------------------------------CUDA-ARCH--
 if(NOT DEFINED CUDA_ARCH)
-    message(STATUS "Setting fallback CUDA_ARCH=35")
-    set(CUDARCH "-arch=sm_35")
+    message(STATUS "Setting fallback CUDA_ARCH=61")
+    set(CUDARCH "-arch=sm_61")
 else(NOT DEFINED CUDA_ARCH)
     message(STATUS "Using provided CUDA_ARCH=${CUDA_ARCH}")
     set(CUDARCH "-arch=sm_${CUDA_ARCH}")
@@ -166,6 +170,19 @@ if(NOT GUI)
 endif()
 
 # -------------------------------------------------------------------------------MPI--
+#unset(MPI_INCLUDE_PATH CACHE)
+unset(MPIEXEC CACHE)
+unset(MPI_C CACHE)
+unset(MPI_C_INCLUDE_PATH CACHE)
+unset(MPI_LIBRARIES CACHE)
+unset(MPI_LIBRARY CACHE)
+unset(MPI_C_LIBRARIES CACHE)
+unset(MPI_CXX_INCLUDE_PATH CACHE)
+unset(MPI_CXX_LIBRARIES CACHE)
+unset(MPI_CXX CACHE)
+unset(MPI_CXX_LIBRARIES CACHE)
+unset(MPI_C_COMPILER CACHE)
+unset(MPI_CXX_COMPILER CACHE)
 find_package(MPI REQUIRED)
 
 include_directories("${MPI_INCLUDE_PATH}")
@@ -214,7 +231,8 @@ endif(GUI)
 option(FORCE_OWN_FFTW "FORCE_OWN_FFTW" OFF)
 
 if(NOT FORCE_OWN_FFTW)
-	FIND_PACKAGE(FFTW)
+    #FIND_PACKAGE(FFTW)
+    FIND_PACKAGE(FFTW REQUIRED THREADS)
 endif(NOT FORCE_OWN_FFTW)
 
 if(NOT FFTW_FOUND)

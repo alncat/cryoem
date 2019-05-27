@@ -25,12 +25,12 @@
 
 // GENERAL -----------------------------
 #define MAX_RESOL_SHARED_MEM 		32
-#define BLOCK_SIZE  				128
+#define BLOCK_SIZE  				256
 // -------------------------------------
 
 
 // COARSE DIFF -------------------------
-#define D2C_BLOCK_SIZE_2D 			512
+#define D2C_BLOCK_SIZE_2D 			256
 #define D2C_EULERS_PER_BLOCK_2D 	4
 
 #define D2C_BLOCK_SIZE_REF3D 		128
@@ -40,7 +40,9 @@
 #define D2C_EULERS_PER_BLOCK_DATA3D 32
 // -------------------------------------
 
-
+// 3D GRID
+#define TILE_SIZE                   5
+#define PENCIL_SIZE                 33
 // FINE DIFF ---------------------------
 #define D2F_BLOCK_SIZE_2D 			256
 #define D2F_CHUNK_2D 				7

@@ -1,0 +1,3 @@
+repository='external project URL'
+module='ftp://ftp.fftw.org/pub/fftw/fftw-3.3.4.tar.gz'
+tag='MD5=2edab8c06b24feeb3b82bbb3ebf3e7b3'

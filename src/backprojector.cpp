@@ -23,7 +23,7 @@
  *  Created on: 24 Aug 2010
  *      Author: scheres
  */
-
+#include <string>
 #include "src/backprojector.h"
 
 #ifdef CUDA
@@ -659,8 +659,7 @@ void BackProjector::setLowResDataAndWeight(MultidimArray<Complex > &lowres_data,
 
 }
 
-
-void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg)
+void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg, MultidimArray<RFLOAT>& weight, MultidimArray<Complex>& data)
 {
 	MultidimArray<RFLOAT> down_weight;
 
@@ -686,6 +685,7 @@ void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg)
 	down_weight.initZeros(avg);
 
 	// Now calculate the down-sized sum
+    
 	int kp, ip, jp;
 	FOR_ALL_ELEMENTS_IN_ARRAY3D(data)
 	{
@@ -695,7 +695,7 @@ void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg)
 
 // TMP
 //#define CHECK_SIZE
-#ifdef CHECK_SIZE
+//#ifdef CHECK_SIZE
 		if (kp > FINISHINGZ(avg) || ip > FINISHINGY(avg) || jp > FINISHINGX(avg) ||
 				kp < STARTINGZ(avg) || ip < STARTINGY(avg) || jp < STARTINGX(avg))
 		{
@@ -703,7 +703,69 @@ void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg)
 			avg.printShape();
 			REPORT_ERROR("BackProjector::getDownsampledAverage: indices out of range");
 		}
-#endif
+//#endif
+		A3D_ELEM(avg, kp, ip, jp) += A3D_ELEM(data, k , i, j);
+		A3D_ELEM(down_weight, kp, ip, jp) += A3D_ELEM(weight, k , i, j);
+	}
+
+	// Calculate the straightforward average in the downsampled arrays
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avg)
+	{
+		if (DIRECT_MULTIDIM_ELEM(down_weight, n) > 0.)
+			DIRECT_MULTIDIM_ELEM(avg, n) /= DIRECT_MULTIDIM_ELEM(down_weight, n);
+		else
+			DIRECT_MULTIDIM_ELEM(avg, n) = 0.;
+	}
+
+
+}
+
+void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg)
+{
+	MultidimArray<RFLOAT> down_weight;
+
+	// Pre-set down_data and down_weight sizes
+	//int down_size = 2 * (r_max + 1) + 1;
+    int down_size = weight.xdim + 1;//XSIZE(weight) + 1;
+	int r2_max = r_max * r_max;
+	// Short side of data array
+	switch (ref_dim)
+	{
+	case 2:
+	   avg.initZeros(down_size, down_size / 2 + 1);
+	   break;
+	case 3:
+	   avg.initZeros(down_size, down_size, down_size / 2 + 1);
+	   break;
+	default:
+	   REPORT_ERROR("BackProjector::getDownsampledAverage%%ERROR: Dimension of the data array should be 2 or 3");
+	}
+	// Set origin in the y.z-center, but on the left side for x.
+	avg.setXmippOrigin();
+	avg.xinit=0;
+	// Resize down_weight the same as down_data
+	down_weight.initZeros(avg);
+    std::cout << "avg shape: " << std::endl;
+    avg.printShape();
+	// Now calculate the down-sized sum
+	int kp, ip, jp;
+	FOR_ALL_ELEMENTS_IN_ARRAY3D(data)
+	{
+		kp = ROUND((RFLOAT)k/padding_factor);
+		ip = ROUND((RFLOAT)i/padding_factor);
+		jp = ROUND((RFLOAT)j/padding_factor);
+
+// TMP
+//#define CHECK_SIZE
+//#ifdef CHECK_SIZE
+		if (kp > FINISHINGZ(avg) || ip > FINISHINGY(avg) || jp > FINISHINGX(avg) ||
+				kp < STARTINGZ(avg) || ip < STARTINGY(avg) || jp < STARTINGX(avg))
+		{
+			std::cerr << " kp= " << kp << " ip= " << ip << " jp= " << jp << std::endl;
+			avg.printShape();
+			REPORT_ERROR("BackProjector::getDownsampledAverage: indices out of range");
+		}
+//#endif
 		A3D_ELEM(avg, kp, ip, jp) += A3D_ELEM(data, k , i, j);
 		A3D_ELEM(down_weight, kp, ip, jp) += A3D_ELEM(weight, k , i, j);
 	}
@@ -763,8 +825,7 @@ void BackProjector::calculateDownSampledFourierShellCorrelation(MultidimArray<Co
 }
 
 void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
-                                int max_iter_preweight,
-                                bool do_map,
+                                MultidimArray<RFLOAT> &grad_out,
                                 RFLOAT tau2_fudge,
                                 MultidimArray<RFLOAT> &tau2,
                                 MultidimArray<RFLOAT> &sigma2,
@@ -774,10 +835,9 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                                 RFLOAT normalise,
                                 bool update_tau2_with_fsc,
                                 bool is_whole_instead_of_half,
+                                bool do_nag,
                                 int nr_threads,
                                 int minres_map,
-                                bool printTimes,
-                                int do_tv,
                                 int tv_iters,
                                 RFLOAT l_r,
                                 RFLOAT tv_alpha,
@@ -785,70 +845,49 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                                 void* devBundle)
 {
 
-#ifdef TIMING
-	Timer ReconTimer;
-	int ReconS_1 = ReconTimer.setNew(" RcS1_Init ");
-	int ReconS_2 = ReconTimer.setNew(" RcS2_Shape&Noise ");
-	int ReconS_3 = ReconTimer.setNew(" RcS3_skipGridding ");
-	int ReconS_4 = ReconTimer.setNew(" RcS4_doGridding_norm ");
-	int ReconS_5 = ReconTimer.setNew(" RcS5_doGridding_init ");
-	int ReconS_6 = ReconTimer.setNew(" RcS6_doGridding_iter ");
-	int ReconS_7 = ReconTimer.setNew(" RcS7_doGridding_apply ");
-	int ReconS_8 = ReconTimer.setNew(" RcS8_blobConvolute ");
-	int ReconS_9 = ReconTimer.setNew(" RcS9_blobResize ");
-	int ReconS_10 = ReconTimer.setNew(" RcS10_blobSetReal ");
-	int ReconS_11 = ReconTimer.setNew(" RcS11_blobSetTemp ");
-	int ReconS_12 = ReconTimer.setNew(" RcS12_blobTransform ");
-	int ReconS_13 = ReconTimer.setNew(" RcS13_blobCenterFFT ");
-	int ReconS_14 = ReconTimer.setNew(" RcS14_blobNorm1 ");
-	int ReconS_15 = ReconTimer.setNew(" RcS15_blobSoftMask ");
-	int ReconS_16 = ReconTimer.setNew(" RcS16_blobNorm2 ");
-	int ReconS_17 = ReconTimer.setNew(" RcS17_WindowReal ");
-	int ReconS_18 = ReconTimer.setNew(" RcS18_GriddingCorrect ");
-	int ReconS_19 = ReconTimer.setNew(" RcS19_tauInit ");
-	int ReconS_20 = ReconTimer.setNew(" RcS20_tausetReal ");
-	int ReconS_21 = ReconTimer.setNew(" RcS21_tauTransform ");
-	int ReconS_22 = ReconTimer.setNew(" RcS22_tautauRest ");
-	int ReconS_23 = ReconTimer.setNew(" RcS23_tauShrinkToFit ");
-	int ReconS_24 = ReconTimer.setNew(" RcS24_extra ");
-#endif
-
-
-    RCTIC(ReconTimer,ReconS_1);
     FourierTransformer transformer;
 	MultidimArray<RFLOAT> Fweight;
-	// Fnewweight can become too large for a float: always keep this one in double-precision
-	MultidimArray<double> Fnewweight;
 	MultidimArray<Complex>& Fconv = transformer.getFourierReference();
 	int max_r2 = ROUND(r_max * padding_factor) * ROUND(r_max * padding_factor);
 
-//#define DEBUG_RECONSTRUCT
-#ifdef DEBUG_RECONSTRUCT
-	Image<RFLOAT> ttt;
-	FileName fnttt;
-	ttt()=weight;
-	ttt.write("reconstruct_initial_weight.spi");
-	std::cerr << " pad_size= " << pad_size << " padding_factor= " << padding_factor << " max_r2= " << max_r2 << std::endl;
-#endif
+    int padoridim = ROUND(padding_factor * ori_size);
+    // make sure padoridim is even
+    padoridim += padoridim%2;
+    std::cout << "current_size: " << pad_size << " padoridim: " << padoridim << " vol_out: " << std::endl;
+    vol_out.printShape();
+    //set vol_out, if do nag, we window the vol_out to the correct size
+    if(!do_nag){
+        if (ref_dim == 2) {
+            vol_out.reshape(pad_size, pad_size);
+        }
+        else{
+            // Too costly to actually allocate the space
+            // Trick transformer with the right dimensions
+            vol_out.reshape(pad_size, pad_size, pad_size);
+        }
+        vol_out.setXmippOrigin();
+    } else {
+        long int hpad_size = padoridim/2;
+        if(ref_dim == 2) {
+            vol_out.window(-hpad_size, -hpad_size, hpad_size-1, hpad_size-1);
+            grad_out.window(-hpad_size, -hpad_size, hpad_size-1, hpad_size-1);
+        }
+        else {
+            vol_out.window(-hpad_size, -hpad_size, -hpad_size, hpad_size-1, hpad_size-1, hpad_size-1);
+            grad_out.window(-hpad_size, -hpad_size, -hpad_size, hpad_size-1, hpad_size-1, hpad_size-1);
+        }
+        //shift the origin to fftw centered
+        CenterFFT(vol_out, true);
+        CenterFFT(grad_out, true);
+        
+    }
+    //omp_set_dynamic(0);
+    omp_set_num_threads(nr_threads);
 
     // Set Fweight, Fnewweight and Fconv to the right size
-    if (ref_dim == 2)
-        vol_out.setDimensions(pad_size, pad_size, 1, 1);
-    else{
-        // Too costly to actually allocate the space
-        // Trick transformer with the right dimensions
-        vol_out.setDimensions(pad_size, pad_size, pad_size, 1);
-    }
-
-    transformer.setReal(vol_out); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
-    vol_out.clear(); // Reset dimensions to 0
-
-    RCTOC(ReconTimer,ReconS_1);
-    RCTIC(ReconTimer,ReconS_2);
+    transformer.setReal(vol_out, nr_threads); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
 
     Fweight.reshape(Fconv);
-    if (!skip_gridding)
-    	Fnewweight.reshape(Fconv);
 
 	// Go from projector-centered to FFTW-uncentered
 	decenter(weight, Fweight, max_r2);
@@ -923,23 +962,649 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 		}
         ssnr /= tau2.getSize();
 	}
+    //reconstruct by total variation regularization
+    //std::cout << "start graph net based regularization" << std::endl;
+    //update ssnr
+    if (!update_tau2_with_fsc)
+        data_vs_prior.initZeros(ori_size/2 + 1);
+    fourier_coverage.initZeros(ori_size/2 + 1);
+    counter.initZeros(ori_size/2 + 1);
+    FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+    {
+        int r2 = kp * kp + ip * ip + jp * jp;
+        if (r2 < max_r2)
+        {
+            int ires = ROUND( sqrt((RFLOAT)r2) / padding_factor );
+            RFLOAT invw = DIRECT_A3D_ELEM(Fweight, k, i, j);
+
+            RFLOAT invtau2;
+            if (DIRECT_A1D_ELEM(tau2, ires) > 0.)
+            {
+                // Calculate inverse of tau2
+                invtau2 = 1. / (oversampling_correction * tau2_fudge * DIRECT_A1D_ELEM(tau2, ires));
+            }
+            else if (DIRECT_A1D_ELEM(tau2, ires) == 0.)
+            {
+                // If tau2 is zero, use small value instead
+                invtau2 = 1./ ( 0.001 * invw);
+            }
+            else
+            {
+                std::cerr << " sigma2= " << sigma2 << std::endl;
+                std::cerr << " fsc= " << fsc << std::endl;
+                std::cerr << " tau2= " << tau2 << std::endl;
+                REPORT_ERROR("ERROR BackProjector::reconstruct: Negative or zero values encountered for tau2 spectrum!");
+            }
+
+            // Keep track of spectral evidence-to-prior ratio and remaining noise in the reconstruction
+            if (!update_tau2_with_fsc)
+                DIRECT_A1D_ELEM(data_vs_prior, ires) += invw / invtau2;
+
+            // Keep track of the coverage in Fourier space
+            if (invw / invtau2 >= 1.)
+                DIRECT_A1D_ELEM(fourier_coverage, ires) += 1.;
+
+            DIRECT_A1D_ELEM(counter, ires) += 1.;
+        }
+    }
+
+    // Average data_vs_prior
+    if (!update_tau2_with_fsc)
+    {
+        FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(data_vs_prior)
+        {
+            if (i > r_max)
+                DIRECT_A1D_ELEM(data_vs_prior, i) = 0.;
+            else if (DIRECT_A1D_ELEM(counter, i) < 0.001)
+                DIRECT_A1D_ELEM(data_vs_prior, i) = 999.;
+            else
+                DIRECT_A1D_ELEM(data_vs_prior, i) /= DIRECT_A1D_ELEM(counter, i);
+        }
+    }
+    // Calculate Fourier coverage in each shell
+    FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(fourier_coverage)
+    {
+        if (DIRECT_A1D_ELEM(counter, i) > 0.)
+            DIRECT_A1D_ELEM(fourier_coverage, i) /= DIRECT_A1D_ELEM(counter, i);
+    }
+
+    
+    RFLOAT normfft;
+    //cerate an array for storing F^-1(data)
+    MultidimArray<RFLOAT> Mout;
+    //first put data into Fconv, which is the fourier transforms of transformer
+    decenter(data, Fconv, max_r2);
+    //std::cout << "max_r2 " << max_r2 << std::endl;
+    //reshape Fconv
+    //windowFourierTransform(Fconv, padoridim);
+    //reshape Fweight
+    //windowFourierTransform(Fweight, padoridim);
+
+    if (ref_dim == 2)
+    {
+        Mout.reshape(padoridim, padoridim);
+        normfft = (RFLOAT)(padding_factor * padding_factor);
+    }
+    else
+    {
+        Mout.reshape(padoridim, padoridim, padoridim);
+        if (data_dim == 3)
+            normfft = (RFLOAT)(padding_factor * padding_factor * padding_factor);
+        else
+            normfft = (RFLOAT)(padding_factor * padding_factor * padding_factor * ori_size);
+    }
+
+    //FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Fweight)
+    //{
+    //	DIRECT_MULTIDIM_ELEM(Fweight, n) /= normalise;
+    //    DIRECT_MULTIDIM_ELEM(Fconv, n) /= normalise;
+    //}
+    RFLOAT avg_Fweight = 0.;
+    RFLOAT max_Fweight = 0.;
+    //RFLOAT avg_Fconv = 0.;
+    //RFLOAT counter = 0.;
+#pragma omp parallel for reduction (+:avg_Fweight)
+    FOR_ALL_ELEMENTS_IN_ARRAY3D(Fweight)
+    {
+        avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
+    }
+#pragma omp parallel for reduction (max:max_Fweight)
+    FOR_ALL_ELEMENTS_IN_ARRAY3D(Fweight)
+    {
+        max_Fweight = std::max(max_Fweight, A3D_ELEM(Fweight, k, i, j));
+    }
+    avg_Fweight /= MULTIDIM_SIZE(Fweight);
+    avg_Fweight = sqrt(avg_Fweight);
+    //avg_Fconv /= counter;
+
+    //transformer.inverseFourierTransform(Fin, Mout);
+    //transformer.fReal = NULL; // Make sure to re-calculate fftw plan
+    //divide by norm factor
+    //FOR_ALL_ELEMENTS_IN_ARRAY3D(Mout)
+    //{
+    //    A3D_ELEM(Mout, k, i, j) /= mSize;
+    //}
+    ////std::cout << MULTIDIM_SIZE(Mout) << std::endl;
+    Mout.setXmippOrigin();
+    //std::cout << "Mout";
+    //Mout.printShape();
+    
+    //std::cout << " ssnr: " << ssnr << std::endl;
+
+    transformer.setReal(Mout, nr_threads);
+    transformer.inverseFourierTransform();
+    transformer.fReal = NULL;
+    Mout.setXmippOrigin();
+    //divide by norm factor
+//    Mout /= normfft;
+    RFLOAT resi_M = 0.;
+#pragma omp parallel for reduction (+:resi_M)
+    FOR_ALL_ELEMENTS_IN_ARRAY3D(Mout)
+    {
+        A3D_ELEM(Mout, k, i, j) /= normfft;
+        resi_M += A3D_ELEM(Mout, k, i, j)*A3D_ELEM(Mout, k, i, j);
+    }
+    resi_M /= MULTIDIM_SIZE(Mout);
+    resi_M = sqrt(resi_M);
+    //vol_out.reshape(Mout);
+    //vol_out.setXmippOrigin();
+    //std::cout << "residual Mout: " << std::sqrt(resi_M) << " ,normalise " << normalise << std::endl;
+    //Image<RFLOAT> tt;
+    //tt() = Mout;
+    //tt() /= resi_M;
+    //CenterFFT(tt(), true);
+    //tt.write("Mout_center"+std::to_string(((MlDeviceBundle*)devBundle)->device_id)+".spi");
+    //tt() = weight;
+    //tt() /= avg_Fweight;
+    //tt.write("weight_center"+std::to_string(((MlDeviceBundle*)devBundle)->device_id)+".spi");
+    //std::cout << "writed out Mout and Fweight" << std::endl;
+
+    if(!update_tau2_with_fsc) ssnr = 1.;
+    else ssnr = sqrt(ssnr);
+
+    //ADMM iterations
+    RFLOAT mu = 0.9;
+    RFLOAT resi = 0.;
+    RFLOAT resi_v = 0.;
+    RFLOAT eps = 0.1;
+
+    if(!do_nag && devBundle){
+        cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
+    }
+    else{
+        //cerate an array for storing grads and momentum
+        MultidimArray<RFLOAT> grads;
+        MultidimArray<RFLOAT> momentum;
+        //momentum is an alias of input momentum
+        momentum.alias(grad_out);
+        //shift the origin to fftw centered
+        //CenterFFT(vol_out, true);
+        grads.reshape(Mout);
+        //momentum.reshape(Mout);
+        vol_out.setXmippOrigin();
+        //momentum.setXmippOrigin();
+        grads.setXmippOrigin();
+        MultidimArray<Complex> Faux;
+        l_r /= (max_Fweight + avg_Fweight);
+        tv_beta *= std::sqrt(avg_Fweight);
+        tv_alpha *= std::sqrt(avg_Fweight);
+        std::cout << "l_r: " << l_r << " tv_beta: " << tv_beta << " tv_alpha: " << tv_alpha << std::endl;
+#pragma omp parallel
+        //for(int m_c = 0; m_c < tv_iters; m_c++)
+        {
+            int m_c = 0;
+            //get grads
+
+#pragma omp single
+            {
+                vol_out.setXmippOrigin();
+                transformer.setReal(vol_out, nr_threads);
+                transformer.FourierTransform();
+                Faux.alias(transformer.fFourier);
+            }
+
+#pragma omp for
+            FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Faux)
+            {
+                if (DIRECT_MULTIDIM_ELEM(Fweight, n) > 0.) 
+                {
+                    DIRECT_MULTIDIM_ELEM(Faux, n) *= DIRECT_MULTIDIM_ELEM(Fweight, n);
+                }
+            }
+#pragma omp single 
+            {   
+                resi = 0.;
+                resi_v = 0.;
+                transformer.inverseFourierTransform(Faux, grads, nr_threads);
+                transformer.fReal = NULL; // Make sure to re-calculate fftw plan
+                grads.setXmippOrigin();
+            }
+
+            //substract the F^-1(data) to grad
+#pragma omp for reduction(+:resi)
+            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
+            {
+                A3D_ELEM(grads, k, i, j) -= A3D_ELEM(Mout, k, i, j);
+                resi += A3D_ELEM(grads, k, i, j)*A3D_ELEM(grads, k, i, j);
+            }
+
+//#pragma omp single
+//            {
+//                resi = std::sqrt(resi);
+//            }
+//
+//
+//            //real_grads /= resi;
+//#pragma omp for
+//            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
+//            {
+//                A3D_ELEM(grads, k, i, j) /= resi;
+//            }
+            //getGraphGrads(vol_out, real_grads, tv_beta);
+            int hZ = (int)(ZSIZE(vol_out)/2);
+            int hY = (int)(YSIZE(vol_out)/2);
+            int hX = (int)(XSIZE(vol_out)/2);
+#pragma omp for
+            FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY3D(vol_out)
+            {
+                RFLOAT tmp = 0.;
+                int kp = k + hZ;
+                int ip = i + hY;
+                int jp = j + hX;
+                if (kp >= ZSIZE(vol_out)) kp -= ZSIZE(vol_out);
+                if (ip >= YSIZE(vol_out)) ip -= YSIZE(vol_out);
+                if (jp >= XSIZE(vol_out)) jp -= XSIZE(vol_out);
+                kp -= hZ;
+                ip -= hY;
+                jp -= hX;
+
+                if( kp > STARTINGZ(vol_out))
+                {
+                    int kpp = kp - 1 + hZ;
+                    if(kpp < hZ) kpp += hZ;
+                    else kpp -= hZ;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, kpp, i, j);
+                }
+                if( kp < FINISHINGZ(vol_out))
+                {
+                    int kpp = kp + 1 + hZ;
+                    if(kpp < hZ) kpp += hZ;
+                    else kpp -= hZ;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, kpp, i, j);
+                }
+                if( ip > STARTINGY(vol_out))
+                {
+                    int ipp = ip - 1 + hY;
+                    if(ipp < hY) ipp += hY;
+                    else ipp -= hY;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, ipp, j);
+                }
+                if( ip < FINISHINGY(vol_out))
+                {
+                    int ipp = ip + 1 + hY;
+                    if(ipp < hY) ipp += hY;
+                    else ipp -= hY;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, ipp, j);
+                }
+                if( jp > STARTINGX(vol_out))
+                {
+                    int jpp = jp - 1 + hX;
+                    if(jpp < hX) jpp += hX;
+                    else jpp -= hX;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, i, jpp);
+                }
+                if( jp < FINISHINGX(vol_out))
+                {
+                    int jpp = jp + 1 + hX;
+                    if(jpp < hX) jpp += hX;
+                    else jpp -= hX;
+                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, i, jpp);
+                }
+                DIRECT_A3D_ELEM(grads, k, i, j) += tmp*tv_beta;
+            }
+
+#pragma omp for
+            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
+            {
+                RFLOAT tmp = A3D_ELEM(momentum, k, i, j);
+                A3D_ELEM(momentum, k, i, j) = mu*A3D_ELEM(momentum, k, i, j) - l_r*A3D_ELEM(grads, k, i, j);
+                A3D_ELEM(grads, k, i, j) = tmp;
+            }
+
+            //gradient descent
+            //then do thresholding
+#pragma omp for reduction(+:resi_v)
+            FOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
+            {
+                RFLOAT tmp = A3D_ELEM(vol_out, k, i, j);
+                A3D_ELEM(vol_out, k, i, j) = A3D_ELEM(vol_out, k, i, j) + A3D_ELEM(momentum, k, i, j) + mu*(A3D_ELEM(momentum, k, i, j) - A3D_ELEM(grads, k, i, j));
+                if(A3D_ELEM(vol_out, k, i, j) < l_r*tv_alpha && A3D_ELEM(vol_out, k, i, j) > -l_r*tv_alpha)
+                {
+                    A3D_ELEM(vol_out, k, i, j) = 0.;
+                }
+                else 
+                {
+                    if(A3D_ELEM(vol_out, k, i, j) > 0.)
+                    {
+                        A3D_ELEM(vol_out, k, i, j) -= l_r*tv_alpha;
+                    }
+                    else 
+                    {
+                        A3D_ELEM(vol_out, k, i, j) += l_r*tv_alpha;
+                    }
+                }
+                tmp -= A3D_ELEM(vol_out, k, i, j);
+                resi_v += tmp*tmp;
+            }
+            //swap vol_out_p and vol_out
+            if(m_c % 10 == 0)
+            {
+#pragma omp master
+                {
+                    
+                    std::cout << resi / MULTIDIM_SIZE(grads);
+                    resi = 0.; 
+                }
+#pragma omp barrier
+#pragma omp for reduction (+:resi)
+                FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
+                {
+                    //resi += A3D_ELEM(real_grads, k, i, j)*A3D_ELEM(real_grads, k, i, j);
+                    resi += A3D_ELEM(vol_out, k, i, j)*A3D_ELEM(vol_out, k, i, j);
+                    //resi_v += (A3D_ELEM(vol_out, k, i, j) - A3D_ELEM(vol_out_p, k, i, j))*(A3D_ELEM(vol_out, k, i, j) - A3D_ELEM(vol_out_p, k, i, j));
+
+                }
+#pragma omp master
+                {
+                    resi /= MULTIDIM_SIZE(grads);
+                    resi_v /= MULTIDIM_SIZE(grads);
+                    std::cout << " norm of vol_out: " << std::sqrt(resi);
+                    std::cout << " " << l_r << " residual: " << std::sqrt(resi_v/resi) << std::endl;
+                }
+                //std::cout << " vol_out - vol_out_p: " << std::sqrt(resi_v/resi) << " " << m_c << std::endl;
+            }
+        }
+        //momentum.clear();
+        grads.clear();
+    }
+
+    //shift the origin to img based
+    CenterFFT(vol_out,true);
+    CenterFFT(grad_out,true);
+    //window volume
+    if (ref_dim==2)
+    {
+        vol_out.window(FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size),
+                LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size));
+        grad_out.window(FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size),
+                LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size));
+    }
+    else
+    {
+        vol_out.window(FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size),
+                LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size));
+        grad_out.window(FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size), FIRST_XMIPP_INDEX(ori_size),
+                LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size));
+
+    }
+    vol_out.setXmippOrigin();
+    grad_out.setXmippOrigin();
+    softMaskOutsideMap(vol_out);
+    //griddingCorrect(vol_out);
+    //clear memory
+    Fweight.clear();
+    Mout.clear();
+    vol_out.shrinkToFit();
+    grad_out.shrinkToFit();
+
+    if(update_tau2_with_fsc) {
+        transformer.setReal(vol_out, nr_threads);
+        transformer.FourierTransform();
+        //Fconv.alias(transformer.fFourier);
+        // New tau2 will be the power spectrum of the new map
+        MultidimArray<RFLOAT> spectrum, count;
+
+        // Calculate this map's power spectrum
+        // Don't call getSpectrum() because we want to use the same transformer object to prevent memory trouble....
+        spectrum.initZeros(XSIZE(vol_out));
+        count.initZeros(XSIZE(vol_out));
+        // recycle the same transformer for all images
+        FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+        {
+            long int idx = ROUND(sqrt(kp*kp + ip*ip + jp*jp));
+            spectrum(idx) += norm(dAkij(Fconv, k, i, j));
+            count(idx) += 1.;
+        }
+        spectrum /= count;
+        // Factor two because of two-dimensionality of the complex plane
+        // (just like sigma2_noise estimates, the power spectra should be divided by 2)
+        RFLOAT normfft = (ref_dim == 3 && data_dim == 2) ? (RFLOAT)(ori_size * ori_size) : 1.;
+        spectrum *= normfft / 2.;
+
+        // New SNR^MAP will be power spectrum divided by the noise in the reconstruction (i.e. sigma2)
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(data_vs_prior)
+        {
+            DIRECT_MULTIDIM_ELEM(tau2, n) =  tau2_fudge * DIRECT_MULTIDIM_ELEM(spectrum, n);
+        }
+    }
+
+    // Completely empty the transformer object
+    transformer.cleanup_threads();
+}
+ 
+void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
+                                int max_iter_preweight,
+                                bool do_map,
+                                RFLOAT tau2_fudge,
+                                MultidimArray<RFLOAT> &tau2,
+                                MultidimArray<RFLOAT> &sigma2,
+                                MultidimArray<RFLOAT> &data_vs_prior,
+                                MultidimArray<RFLOAT> &fourier_coverage,
+                                MultidimArray<RFLOAT> fsc, // only input
+                                RFLOAT normalise,
+                                bool update_tau2_with_fsc,
+                                bool is_whole_instead_of_half,
+                                int nr_threads,
+                                int minres_map,
+                                bool printTimes,
+                                bool do_tv,
+                                int tv_iters,
+                                RFLOAT l_r,
+                                RFLOAT tv_alpha,
+                                RFLOAT tv_beta,
+                                RFLOAT tv_weight,
+                                void* devBundle)
+{
+
+#ifdef TIMING
+	Timer ReconTimer;
+	int ReconS_1 = ReconTimer.setNew(" RcS1_Init ");
+	int ReconS_2 = ReconTimer.setNew(" RcS2_Shape&Noise ");
+	int ReconS_3 = ReconTimer.setNew(" RcS3_skipGridding ");
+	int ReconS_4 = ReconTimer.setNew(" RcS4_doGridding_norm ");
+	int ReconS_5 = ReconTimer.setNew(" RcS5_doGridding_init ");
+	int ReconS_6 = ReconTimer.setNew(" RcS6_doGridding_iter ");
+	int ReconS_7 = ReconTimer.setNew(" RcS7_doGridding_apply ");
+	int ReconS_8 = ReconTimer.setNew(" RcS8_blobConvolute ");
+	int ReconS_9 = ReconTimer.setNew(" RcS9_blobResize ");
+	int ReconS_10 = ReconTimer.setNew(" RcS10_blobSetReal ");
+	int ReconS_11 = ReconTimer.setNew(" RcS11_blobSetTemp ");
+	int ReconS_12 = ReconTimer.setNew(" RcS12_blobTransform ");
+	int ReconS_13 = ReconTimer.setNew(" RcS13_blobCenterFFT ");
+	int ReconS_14 = ReconTimer.setNew(" RcS14_blobNorm1 ");
+	int ReconS_15 = ReconTimer.setNew(" RcS15_blobSoftMask ");
+	int ReconS_16 = ReconTimer.setNew(" RcS16_blobNorm2 ");
+	int ReconS_17 = ReconTimer.setNew(" RcS17_WindowReal ");
+	int ReconS_18 = ReconTimer.setNew(" RcS18_GriddingCorrect ");
+	int ReconS_19 = ReconTimer.setNew(" RcS19_tauInit ");
+	int ReconS_20 = ReconTimer.setNew(" RcS20_tausetReal ");
+	int ReconS_21 = ReconTimer.setNew(" RcS21_tauTransform ");
+	int ReconS_22 = ReconTimer.setNew(" RcS22_tautauRest ");
+	int ReconS_23 = ReconTimer.setNew(" RcS23_tauShrinkToFit ");
+	int ReconS_24 = ReconTimer.setNew(" RcS24_extra ");
+#endif
+
+
+    RCTIC(ReconTimer,ReconS_1);
+    FourierTransformer transformer;
+	MultidimArray<RFLOAT> Fweight;
+	// Fnewweight can become too large for a float: always keep this one in double-precision
+	MultidimArray<double> Fnewweight;
+	MultidimArray<Complex>& Fconv = transformer.getFourierReference();
+    r_max = (weight.xdim - 1)/2;
+	int max_r2 = ROUND(r_max * padding_factor) * ROUND(r_max * padding_factor);
+
+//#define DEBUG_RECONSTRUCT
+#ifdef DEBUG_RECONSTRUCT
+	Image<RFLOAT> ttt;
+	FileName fnttt;
+	ttt()=weight;
+	ttt.write("reconstruct_initial_weight.spi");
+	std::cerr << " pad_size= " << pad_size << " padding_factor= " << padding_factor << " max_r2= " << max_r2 << std::endl;
+#endif
+    //set vol_out to correct size
+    if(!do_tv){
+        if (ref_dim == 2) {
+            //vol_out.setDimensions(pad_size, pad_size, 1, 1);
+            vol_out.reshape(pad_size, pad_size);
+        }
+        else{
+            // Too costly to actually allocate the space
+            // Trick transformer with the right dimensions
+            //vol_out.setDimensions(pad_size, pad_size, pad_size, 1);
+            vol_out.reshape(pad_size, pad_size, pad_size);
+        }
+    } else {
+        int padoridim = ROUND(padding_factor * ori_size);
+        // make sure padoridim is even
+        padoridim += padoridim%2;
+
+        long int hpad_size = padoridim/2;
+        if(ref_dim == 2) {
+            vol_out.window(-hpad_size, -hpad_size, hpad_size-1, hpad_size-1);
+        }
+        else {
+            vol_out.window(-hpad_size, -hpad_size, -hpad_size, hpad_size-1, hpad_size-1, hpad_size-1);
+        }
+        //shift the origin to fftw centered
+        CenterFFT(vol_out, true);
+    }
+    vol_out.setXmippOrigin();
+
+    // Set Fweight, Fnewweight and Fconv to the right size
+    if(do_tv) {
+        transformer.setReal(vol_out, nr_threads);
+    } else {
+        transformer.setReal(vol_out); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
+    }
+    //vol_out.clear(); // Reset dimensions to 0
+
+    RCTOC(ReconTimer,ReconS_1);
+    RCTIC(ReconTimer,ReconS_2);
+
+    //Fweight.reshape(Fconv);
+    //Fweight.reshape(pad_size, pad_size, pad_size/2+1);
+    Fweight.reshape(weight.zdim, weight.ydim, weight.xdim);
+    //std::cout << "Fweight ";
+    //Fweight.printShape();
+    if (!skip_gridding && !do_tv)
+    	Fnewweight.reshape(Fconv);
+
+	// Go from projector-centered to FFTW-uncentered
+	decenter(weight, Fweight, max_r2);
+    //std::cout << "decenter!!!!!" << std::endl;
+	// Take oversampling into account
+	RFLOAT oversampling_correction = (ref_dim == 3) ? (padding_factor * padding_factor * padding_factor) : (padding_factor * padding_factor);
+	MultidimArray<RFLOAT> counter;
+
+	// First calculate the radial average of the (inverse of the) power of the noise in the reconstruction
+	// This is the left-hand side term in the nominator of the Wiener-filter-like update formula
+	// and it is stored inside the weight vector
+	// Then, if (do_map) add the inverse of tau2-spectrum values to the weight
+	sigma2.initZeros(ori_size/2 + 1);
+	counter.initZeros(ori_size/2 + 1);
+	//FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+    FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
+	{
+		int r2 = kp * kp + ip * ip + jp * jp;
+		if (r2 < max_r2)
+		{
+			int ires = ROUND( sqrt((RFLOAT)r2) / padding_factor );
+			RFLOAT invw = oversampling_correction * DIRECT_A3D_ELEM(Fweight, k, i, j);
+			DIRECT_A1D_ELEM(sigma2, ires) += invw;
+			DIRECT_A1D_ELEM(counter, ires) += 1.;
+		}
+	}
+
+	// Average (inverse of) sigma2 in reconstruction
+	FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(sigma2)
+	{
+		if (DIRECT_A1D_ELEM(sigma2, i) > 1e-10)
+			DIRECT_A1D_ELEM(sigma2, i) = DIRECT_A1D_ELEM(counter, i) / DIRECT_A1D_ELEM(sigma2, i);
+		else if (DIRECT_A1D_ELEM(sigma2, i) == 0)
+			DIRECT_A1D_ELEM(sigma2, i) = 0.;
+		else
+		{
+			std::cerr << " DIRECT_A1D_ELEM(sigma2, i)= " << DIRECT_A1D_ELEM(sigma2, i) << std::endl;
+			REPORT_ERROR("BackProjector::reconstruct: ERROR: unexpectedly small, yet non-zero sigma2 value, this should not happen...a");
+		}
+	}
+
+    RFLOAT ssnr = 0.;
+	if (update_tau2_with_fsc)
+	{
+		tau2.reshape(ori_size/2 + 1);
+		data_vs_prior.initZeros(ori_size/2 + 1);
+		// Then calculate new tau2 values, based on the FSC
+		if (!fsc.sameShape(sigma2) || !fsc.sameShape(tau2))
+		{
+			fsc.printShape(std::cerr);
+			tau2.printShape(std::cerr);
+			sigma2.printShape(std::cerr);
+			REPORT_ERROR("ERROR BackProjector::reconstruct: sigma2, tau2 and fsc have different sizes");
+		}
+		FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(sigma2)
+		{
+			// FSC cannot be negative or zero for conversion into tau2
+			RFLOAT myfsc = XMIPP_MAX(0.001, DIRECT_A1D_ELEM(fsc, i));
+			if (is_whole_instead_of_half)
+			{
+				// Factor two because of twice as many particles
+				// Sqrt-term to get 60-degree phase errors....
+				myfsc = sqrt(2. * myfsc / (myfsc + 1.));
+			}
+			myfsc = XMIPP_MIN(0.999, myfsc);
+			RFLOAT myssnr = myfsc / (1. - myfsc);
+            ssnr += myssnr;
+			RFLOAT fsc_based_tau = myssnr * DIRECT_A1D_ELEM(sigma2, i);
+			DIRECT_A1D_ELEM(tau2, i) = fsc_based_tau;
+			// data_vs_prior is merely for reporting: it is not used for anything in the reconstruction
+			DIRECT_A1D_ELEM(data_vs_prior, i) = myssnr;
+
+		}
+        ssnr /= tau2.getSize();
+	}
     RCTOC(ReconTimer,ReconS_2);
 	// Apply MAP-additional term to the Fnewweight array
 	// This will regularise the actual reconstruction
     //reconstruct by total variation regularization
     if (do_tv){
+        std::cout << "start graph net based reconstruction" << std::endl;
         //update ssnr
         if (!update_tau2_with_fsc)
             data_vs_prior.initZeros(ori_size/2 + 1);
         fourier_coverage.initZeros(ori_size/2 + 1);
         counter.initZeros(ori_size/2 + 1);
-        FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+        RFLOAT avg_Fweight = 0.;
+        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+        FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
         {
             int r2 = kp * kp + ip * ip + jp * jp;
             if (r2 < max_r2)
             {
                 int ires = ROUND( sqrt((RFLOAT)r2) / padding_factor );
                 RFLOAT invw = DIRECT_A3D_ELEM(Fweight, k, i, j);
+                avg_Fweight += invw;
 
                 RFLOAT invtau2;
                 if (DIRECT_A1D_ELEM(tau2, ires) > 0.)
@@ -994,13 +1659,16 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                     DIRECT_A1D_ELEM(data_vs_prior, i) /= DIRECT_A1D_ELEM(counter, i);
             }
         }
-        l_r /= Fconv.getSize();
+        //l_r /= Fconv.getSize();
 
+        RFLOAT tot_weights = 0.;
         // Calculate Fourier coverage in each shell
 		FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(fourier_coverage)
 		{
-			if (DIRECT_A1D_ELEM(counter, i) > 0.)
+			if (DIRECT_A1D_ELEM(counter, i) > 0.) {
 				DIRECT_A1D_ELEM(fourier_coverage, i) /= DIRECT_A1D_ELEM(counter, i);
+                tot_weights += DIRECT_A1D_ELEM(counter, i);
+            }
 		}
 
         int padoridim = ROUND(padding_factor * ori_size);
@@ -1015,9 +1683,9 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //Fconv.printShape();
         //std::cout << "max_r2 " << max_r2 << std::endl;
         //reshape Fconv
-        windowFourierTransform(Fconv, padoridim);
+        //windowFourierTransform(Fconv, padoridim);
         //reshape Fweight
-        windowFourierTransform(Fweight, padoridim);
+        //windowFourierTransform(Fweight, padoridim);
 
         if (ref_dim == 2)
         {
@@ -1038,7 +1706,6 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 		//	DIRECT_MULTIDIM_ELEM(Fweight, n) /= normalise;
         //    DIRECT_MULTIDIM_ELEM(Fconv, n) /= normalise;
 		//}
-        RFLOAT avg_Fweight = 0.;
         RFLOAT avg_Fconv = 0.;
         RFLOAT counter = 0.;
         //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
@@ -1055,7 +1722,6 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //avg_Fweight /= MULTIDIM_SIZE(Fweight);
         //avg_Fconv /= counter;
 
-        //std::cout << "start graph net based regularization" << std::endl;
         //transformer.inverseFourierTransform(Fin, Mout);
         //transformer.fReal = NULL; // Make sure to re-calculate fftw plan
         //divide by norm factor
@@ -1071,31 +1737,42 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //}
         //resi_M /= MULTIDIM_SIZE(Mout);
         Mout.setXmippOrigin();
-        transformer.setReal(Mout);
-        transformer.inverseFourierTransform();
-        Mout.setXmippOrigin();
         //std::cout << "Mout";
         //Mout.printShape();
+        //std::cout << "ssnr: " << ssnr << std::endl;
+        avg_Fweight /= tot_weights;
+        std::cout << "avg_Fweight: " << avg_Fweight << " " << normalise << std::endl;
+
+        transformer.setReal(Mout, nr_threads);
+        transformer.inverseFourierTransform();
+        transformer.fReal = NULL;
+        Mout.setXmippOrigin();
         //divide by norm factor
         Mout /= normfft;
+        //RFLOAT resi_M = 0.;
+        //FOR_ALL_ELEMENTS_IN_ARRAY3D(Mout)
+        //{
+        //    resi_M += A3D_ELEM(Mout, k, i, j)*A3D_ELEM(Mout, k, i, j);
+        //}
+        //resi_M /= MULTIDIM_SIZE(Mout);
 
-        vol_out.resize(Mout);
-        //std::cout << "residual Mout: " << std::sqrt(resi_M) <<", average Fweight " << std::sqrt(avg_Fweight) << " ,normalise " << normalise << " , average Fconv " << avg_Fconv << std::endl;
+        //vol_out.resize(Mout);
+        //vol_out.setXmippOrigin();
+        //std::cout << "residual Mout: " << std::sqrt(resi_M) << " ,normalise " << normalise << std::endl;
 
         if(!update_tau2_with_fsc) ssnr = 1.;
         else ssnr = sqrt(ssnr);
 
-        //std::cout << "ssnr " << ssnr << ", learning rate: " << l_r <<", tv_alpha: " << tv_alpha << ", tv_beta: " << tv_beta << std::endl;
         //ADMM iterations
         RFLOAT mu = 0.9;
         //omp_set_dynamic(0);
-        omp_set_num_threads(nr_threads);
+        //omp_set_num_threads(nr_threads);
         RFLOAT resi = 0.;
         RFLOAT resi_v = 0.;
         RFLOAT eps = 0.1;
 
         if(devBundle){
-            cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise);
+            cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);
         }
         else{
             //Mout.setXmippOrigin();
@@ -1110,8 +1787,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //cerate an array for storing grads and momentum
             MultidimArray<RFLOAT> grads;
             MultidimArray<RFLOAT> momentum;
-            grads.resize(Mout);
-            momentum.resize(Mout);
+            grads.reshape(Mout);
+            momentum.reshape(Mout);
             vol_out.setXmippOrigin();
             momentum.setXmippOrigin();
             grads.setXmippOrigin();
@@ -1295,29 +1972,11 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                 }
                 //std::cout << " vol_out - vol_out_p: " << std::sqrt(resi_v/resi) << " " << m_c << std::endl;
             }
-//#pragma omp master
-//            {
-//                std::cout << m_c << std::endl;
-//            }
-//#pragma omp barrier
-            //RFLOAT* tmp = NULL;
-            //tmp = vol_out.data;
-            //vol_out.data = vol_out_p.data;
-            //vol_out_p.data = tmp;
         }
         momentum.clear();
         grads.clear();
         }
 
-        //FOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
-        //{
-        //    resi += A3D_ELEM(vol_out, k, i, j) * A3D_ELEM(vol_out, k, i, j);
-        //}
-        //resi /= MULTIDIM_SIZE(vol_out);
-        //std::cout << "residual: " << std::sqrt(resi) << std::endl;
-        //clear memory
-        Fweight.clear();
-        Mout.clear();
         //window map
         CenterFFT(vol_out,true);
 
@@ -1332,14 +1991,19 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                     LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size), LAST_XMIPP_INDEX(ori_size));
         }
         vol_out.setXmippOrigin();
+        // Now can use extra mem to move data into smaller array space
+        vol_out.shrinkToFit();
+
         softMaskOutsideMap(vol_out);
         //griddingCorrect(vol_out);
+        //clear memory
+        Fweight.clear();
+        Mout.clear();
 
         if (update_tau2_with_fsc)
         {
             // New tau2 will be the power spectrum of the new map
             MultidimArray<RFLOAT> spectrum, count;
-
             // Calculate this map's power spectrum
             // Don't call getSpectrum() because we want to use the same transformer object to prevent memory trouble....
             RCTIC(ReconTimer,ReconS_19);
@@ -1348,7 +2012,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
             RCTOC(ReconTimer,ReconS_19);
             RCTIC(ReconTimer,ReconS_20);
             // recycle the same transformer for all images
-            transformer.setReal(vol_out);
+            transformer.setReal(vol_out, nr_threads);
             RCTOC(ReconTimer,ReconS_20);
             RCTIC(ReconTimer,ReconS_21);
             transformer.FourierTransform();
@@ -1375,11 +2039,11 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
             RCTOC(ReconTimer,ReconS_22);
         }
         RCTIC(ReconTimer,ReconS_23);
+        
         // Completely empty the transformer object
-        transformer.cleanup();
-        // Now can use extra mem to move data into smaller array space
-        vol_out.shrinkToFit();
-
+        transformer.cleanup_threads();
+        
+        
         RCTOC(ReconTimer,ReconS_23);
 #ifdef TIMING
         if(printTimes)
@@ -1749,13 +2413,13 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     //std::cout << "vol_out";
     //vol_out.printShape();
     vol_out.shrinkToFit();
-    //resi_v = 0.;
-    //FOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
-    //{
-    //    resi_v += A3D_ELEM(vol_out, k, i, j)*A3D_ELEM(vol_out, k, i, j);
-    //}
-    //resi_v /= MULTIDIM_SIZE(vol_out);
-    //std::cout << "residual vol_out: " << std::sqrt(resi_v) << std::endl;
+    //jresi_v = 0.;
+    //jFOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
+    //j{
+    //j    resi_v += A3D_ELEM(vol_out, k, i, j)*A3D_ELEM(vol_out, k, i, j);
+    //j}
+    //jresi_v /= MULTIDIM_SIZE(vol_out);
+    //jstd::cout << "residual vol_out: " << std::sqrt(resi_v) << std::endl;
 
 
 	RCTOC(ReconTimer,ReconS_23);

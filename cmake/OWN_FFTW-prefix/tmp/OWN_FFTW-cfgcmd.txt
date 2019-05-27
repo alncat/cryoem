@@ -1,0 +1,1 @@
+cmd='<SOURCE_DIR>/configure;--enable-shared;--prefix=/home/zluo/work/relion/external/fftw;--enable-sse2;--enable-avx'

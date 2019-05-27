@@ -64,11 +64,14 @@ public:
 	// Perform SGD instead of expectation maximization?
 	bool do_sgd;
 
+    bool do_nag;
+    //the number of nag iterations so far
+    int nag_counter;
     // Perform graph based regularization
-    int do_tv;
+    bool do_tv;
 
     // learning rate graph restraint scale
-    RFLOAT l_r, tv_alpha, tv_beta;
+    RFLOAT l_r, tv_alpha, tv_beta, tv_weight;
 
     // number of tv iterations
     int tv_iters;
@@ -103,6 +106,11 @@ public:
 	// Fudge factor to adjust estimated tau2_class spectra
 	RFLOAT tau2_fudge_factor;
 
+    // For old weight
+    std::vector<MultidimArray<RFLOAT>> weight_old;
+
+    // For old data
+    std::vector<MultidimArray<Complex>> data_old;
 
 	// Vector with all reference images
 	std::vector<MultidimArray<RFLOAT> > Iref;
@@ -352,7 +360,7 @@ public:
 	}
 
 	// Initialise vectors with the right size
-	void initialise(bool _do_sgd = false);
+	void initialise(bool _do_sgd = false, bool _do_nag = false);
 
 	//Read a model from a file
 	void read(FileName fn_in);
@@ -366,7 +374,7 @@ public:
 	// Read images from disc and initialise
 	// Also set do_average_unaligned and do_generate_seeds flags
 	void readImages(FileName fn_ref, bool _is_3d_model, int _ori_size, Experiment &_mydata,
-			bool &do_average_unaligned, bool &do_generate_seeds, bool &refs_are_ctf_corrected, bool _do_sgd = false);
+			bool &do_average_unaligned, bool &do_generate_seeds, bool &refs_are_ctf_corrected, bool _do_sgd = false, bool _do_nag = false);
 
 	// The group numbering in mydata may be different from the one in this model.
 	// Readjust all group_ids in the Experiment based on their group names
@@ -410,6 +418,7 @@ public:
 	// One backprojector for CTF-corrected estimate of each class;
 	std::vector<BackProjector > BPref;
 
+    
 	// Store the sum of the weights inside each group
 	// That is the number of particles inside each group
 	std::vector<RFLOAT> sumw_group;

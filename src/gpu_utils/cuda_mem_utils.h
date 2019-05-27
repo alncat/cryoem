@@ -807,6 +807,87 @@ public:
 	}
 };
 
+template<typename T>
+class CudaUnifedPtr
+{
+    cudaStream_t stream;
+    public:
+    int gpu_id;
+    size_t size;
+    T *ptr;
+    inline CudaUnifedPtr(cudaStream_t stream_, int id, size_t size_=0): size(size_), stream(stream_), gpu_id(id) {};
+    inline
+    T* alloc(){
+        HANDLE_ERROR(cudaMallocManaged(&ptr, size*sizeof(T)));
+    }
+    inline
+    void init(){
+        HANDLE_ERROR(cudaMemset(ptr, 0, sizeof(T)*size));
+    }
+    inline
+    void cp_to_device(){
+        HANDLE_ERROR(cudaMemPrefetchAsync(ptr, sizeof(T)*size, gpu_id, stream));
+    }
+    inline
+    void cp_to_host(){
+        HANDLE_ERROR(cudaMemPrefetchAsync(ptr, sizeof(T)*size, cudaCpuDeviceId, stream));
+    }
+    inline
+    void setPtr(T* ptr_){
+        ptr = ptr_;
+    }
+
+    inline
+    void attach_to_stream(){
+        HANDLE_ERROR(cudaStreamAttachMemAsync(stream, ptr));
+    }
+
+    inline
+    void set_read_only(){
+        HANDLE_ERROR(cudaMemAdvise(ptr, sizeof(T)*size, cudaMemAdviseSetReadMostly, gpu_id));
+    }
+
+    inline
+    void attach_to_device(){
+        HANDLE_ERROR(cudaMemAdvise(ptr, sizeof(T)*size, cudaMemAdviseSetPreferredLocation, gpu_id));
+    }
+
+    void setSize(size_t s){
+        size = s;
+    }
+    size_t getSize(){
+        return size;
+    }
+
+    inline
+	void streamSync()
+	{
+		DEBUG_HANDLE_ERROR(cudaStreamSynchronize(stream));
+	}
+
+    cudaStream_t &getStream() {return stream; };
+	void setStream(cudaStream_t s) { stream = s; };
+
+    ~CudaUnifedPtr(){
+        cudaFree(ptr);
+    }
+
+    inline T& operator[](size_t i){
+        return ptr[i];
+    }
+    /**
+	 * Device pointer quick access
+	 */
+	inline
+	T* operator~() {
+#ifdef DEBUG_CUDA
+		if (ptr == 0)
+			printf("DEBUG_WARNING: \"kernel cast\" on null pointer.\n");
+#endif
+		return ptr;
+	}
+};
+
 template <typename T, bool CustomAlloc=true>
 class CudaGlobalPtr
 {

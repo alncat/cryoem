@@ -118,6 +118,24 @@ void FourierTransformer::cleanup()
 
 }
 
+void FourierTransformer::cleanup_threads()
+{
+	// First clear object and destroy plans
+    clear();
+    // Then clean up all the junk fftw keeps lying around
+    // SOMEHOW THE FOLLOWING IS NOT ALLOWED WHEN USING MULTPLE TRANSFORMER OBJECTS....
+#ifdef RELION_SINGLE_PRECISION
+    fftwf_cleanup_threads();
+#else
+    fftw_cleanup_threads();
+#endif
+
+#ifdef DEBUG_PLANS
+    std::cerr << "CLEANED-UP this= "<<this<< std::endl;
+#endif
+
+}
+
 void FourierTransformer::destroyPlans()
 {
     // Anything to do with plans has to be protected for threads!
@@ -148,6 +166,80 @@ const MultidimArray<RFLOAT> &FourierTransformer::getReal() const
 const MultidimArray<Complex > &FourierTransformer::getComplex() const
 {
     return (*fComplex);
+}
+
+void FourierTransformer::setReal(MultidimArray<RFLOAT> &input, int nr_threads)
+{
+    bool recomputePlan=false;
+    if (fReal==NULL)
+        recomputePlan=true;
+    else if (dataPtr!=MULTIDIM_ARRAY(input))
+        recomputePlan=true;
+    else
+        recomputePlan=!(fReal->sameShape(input));
+
+    fFourier.reshape(ZSIZE(input),YSIZE(input),XSIZE(input)/2+1);
+    fReal=&input;
+
+    if (recomputePlan)
+    {
+        int ndim=3;
+        if (ZSIZE(input)==1)
+        {
+            ndim=2;
+            if (YSIZE(input)==1)
+                ndim=1;
+        }
+        int *N = new int[ndim];
+        switch (ndim)
+        {
+        case 1:
+            N[0]=XSIZE(input);
+            break;
+        case 2:
+            N[0]=YSIZE(input);
+            N[1]=XSIZE(input);
+            break;
+        case 3:
+            N[0]=ZSIZE(input);
+            N[1]=YSIZE(input);
+            N[2]=XSIZE(input);
+            break;
+        }
+
+
+        // Destroy both forward and backward plans if they already exist
+        destroyPlans();
+        // Make new plans
+        
+#ifdef RELION_SINGLE_PRECISION
+        fftwf_init_threads();
+        fftwf_plan_with_nthreads(nr_threads);
+        fPlanForward = fftwf_plan_dft_r2c(ndim, N, MULTIDIM_ARRAY(*fReal),
+                                         (fftwf_complex*) MULTIDIM_ARRAY(fFourier), FFTW_ESTIMATE);
+        fPlanBackward = fftwf_plan_dft_c2r(ndim, N,
+                                          (fftwf_complex*) MULTIDIM_ARRAY(fFourier), MULTIDIM_ARRAY(*fReal),
+                                          FFTW_ESTIMATE);
+#else
+        plans_are_set = true;
+        fftw_init_threads();
+        fftw_plan_with_nthreads(nr_threads);
+        fPlanForward = fftw_plan_dft_r2c(ndim, N, MULTIDIM_ARRAY(*fReal),
+                                         (fftw_complex*) MULTIDIM_ARRAY(fFourier), FFTW_ESTIMATE);
+        fPlanBackward = fftw_plan_dft_c2r(ndim, N,
+                                          (fftw_complex*) MULTIDIM_ARRAY(fFourier), MULTIDIM_ARRAY(*fReal),
+                                          FFTW_ESTIMATE);
+#endif
+        if (fPlanForward == NULL || fPlanBackward == NULL)
+            REPORT_ERROR("FFTW plans cannot be created");
+
+#ifdef DEBUG_PLANS
+        std::cerr << " SETREAL fPlanForward= " << fPlanForward << " fPlanBackward= " << fPlanBackward  <<" this= "<<this<< std::endl;
+#endif
+
+        delete [] N;
+        dataPtr=MULTIDIM_ARRAY(*fReal);
+    }
 }
 
 

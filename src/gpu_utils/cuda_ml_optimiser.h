@@ -445,7 +445,14 @@ public:
 
     void setStream()
     {
-        cudaStreamCreate(&stream);
+        HANDLE_ERROR(cudaStreamCreate(&stream));
+    }
+
+    void destroyStream()
+    {
+        if(stream != NULL){
+            HANDLE_ERROR(cudaStreamDestroy(stream));
+        }
     }
 
 	size_t checkFixedSizedObjects(int shares);
@@ -463,9 +470,7 @@ public:
 		cudaProjectors.clear();
 		cudaBackprojectors.clear();
 		coarseProjectionPlans.clear();
-        if(stream != NULL){
-            HANDLE_ERROR(cudaStreamDestroy(stream));
-        }
+        
 		//Delete this lastly
 		delete allocator;
 		HANDLE_ERROR(cudaSetDevice(device_id));

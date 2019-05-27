@@ -207,6 +207,8 @@ void Experiment::divideOriginalParticlesInRandomHalves(int seed, bool do_helical
 			REPORT_ERROR("ERROR Experiment::divideParticlesInRandomHalves: some random subset values are zero and others are not. They should all be zero, or all bigger than zero!");
 	}
 
+    if(!all_are_zero) std::cout << "Will NOT randomize random subset assignments!" << std::endl;
+
 	if (all_are_zero)
 	{
 		// Only randomise them if the random_subset values were not read in from the STAR file
@@ -380,7 +382,7 @@ void Experiment::divideOriginalParticlesInRandomHalves(int seed, bool do_helical
 
 
 	// Now re-order such that half1 is in first half, and half2 is in second half of the particle list (for MPI_parallelisattion)
-
+    
 	std::vector<long int> ori_particle_list1, ori_particle_list2;
 	// Fill the two particle lists
 	for (long int i = 0; i < ori_particles.size(); i++)
@@ -390,15 +392,22 @@ void Experiment::divideOriginalParticlesInRandomHalves(int seed, bool do_helical
 			ori_particle_list1.push_back(i);
 		else if (random_subset == 2)
 			ori_particle_list2.push_back(i);
+
 		else
 			REPORT_ERROR("ERROR: invalid number for random subset (i.e. not 1 or 2): " + integerToString(random_subset));
 	}
+    
 
 	// Just a silly check for the sizes of the ori_particle_lists (to be sure)
 	if (ori_particle_list1.size() != nr_ori_particles_subset1)
 		REPORT_ERROR("ERROR: invalid ori_particle_list1 size:" + integerToString(ori_particle_list1.size()) + " != " + integerToString(nr_ori_particles_subset1));
 	if (ori_particle_list2.size() != nr_ori_particles_subset2)
 		REPORT_ERROR("ERROR: invalid ori_particle_list2 size:" + integerToString(ori_particle_list2.size()) + " != " + integerToString(nr_ori_particles_subset2));
+
+    // Randomise the two particle lists
+    srand(seed);
+    std::random_shuffle(ori_particle_list1.begin(), ori_particle_list1.end());
+    std::random_shuffle(ori_particle_list2.begin(), ori_particle_list2.end());
 
 	// First fill new_ori_particles with the first subset, then with the second
 	std::vector<ExpOriginalParticle> new_ori_particles;
@@ -413,6 +422,25 @@ void Experiment::divideOriginalParticlesInRandomHalves(int seed, bool do_helical
 	if (nr_ori_particles_subset2 == 0 || nr_ori_particles_subset1 == 0)
 		REPORT_ERROR("ERROR: one of your half sets has no segments. Helical half-sets are always per-filament. Provide at least 2 filaments.");
 
+
+}
+
+void Experiment::randomiseParticlesOrder(int seed){
+    srand(seed);
+    // First fill in order
+    std::vector<ExpOriginalParticle> new_ori_particles;
+    std::vector<long int> ori_particle_list;
+    ori_particle_list.resize(ori_particles.size());
+    for (long int i = 0; i < ori_particle_list.size(); i++)
+        ori_particle_list[i] = i;
+
+    // Randomise
+    std::random_shuffle(ori_particle_list.begin(), ori_particle_list.end());
+
+    // Refill new_ori_particles
+    for (long int i = 0; i < ori_particle_list.size(); i++)
+        new_ori_particles.push_back(ori_particles[ori_particle_list[i]]);   
+    ori_particles=new_ori_particles;
 
 }
 

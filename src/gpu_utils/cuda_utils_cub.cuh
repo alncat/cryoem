@@ -5,6 +5,7 @@
 #include "src/gpu_utils/cuda_settings.h"
 #include "src/gpu_utils/cuda_mem_utils.h"
 #include <stdio.h>
+#include <limits>
 #include <signal.h>
 #include <vector>
 #include <math.h>
@@ -28,13 +29,14 @@
 #include "src/gpu_utils/cub/device/device_reduce.cuh"
 #include "src/gpu_utils/cub/device/device_scan.cuh"
 #include "src/gpu_utils/cub/device/device_select.cuh"
+#include "src/gpu_utils/cub/iterator/transform_input_iterator.cuh"
 
 template<typename T>
 struct Square
 {
     __host__ __device__ __forceinline__
-    T operator()(const T& a, const T& b) const {
-        return a + b*b;
+    T operator()(const T& a) const {
+        return a*a;
     }
 };
 //using namespace cub;
@@ -74,9 +76,33 @@ __global__ void BlockSumKernel(
     // Store aggregate and elapsed clocks
     if (threadIdx.x == 0)
     {
+        //if(blockIdx.x % 1000000 == 0)
+        //    printf("%f\n", aggregate);
         atomicAdd(d_out, aggregate);
     }
 }
+
+template <typename T>
+static T getSquareSumOnBlock(CudaUnifedPtr<T> &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with pointer of zero size.\n");
+if (ptr.d_ptr == NULL)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL && CustomAlloc)
+	printf("DEBUG_ERROR: getSquareSumOnDevice called with null allocator.\n");
+#endif
+	CudaUnifedPtr<T>  val(ptr.getStream(), ptr.gpu_id, 1);
+	val.alloc();
+
+	int sumSize = (int) ceilf(((XFLOAT) ptr.getSize())/((XFLOAT)(512*4)));
+    BlockSumKernel<T, 512, 4, cub::BLOCK_LOAD_VECTORIZE, cub::BLOCK_REDUCE_RAKING><<<sumSize, 512, 0, ptr.getStream()>>>(~ptr, ~val, ptr.getSize());
+	ptr.streamSync();
+
+	return val[0];
+}
+
 
 template <typename T, bool CustomAlloc>
 static T getSquareSumOnBlock(CudaGlobalPtr<T, CustomAlloc> &ptr)
@@ -111,18 +137,18 @@ if (ptr.d_ptr == NULL)
 if (ptr.getAllocator() == NULL && CustomAlloc)
 	printf("DEBUG_ERROR: getSquareSumOnDevice called with null allocator.\n");
 #endif
+    cub::TransformInputIterator<T, Square<T>, T*> input_iter(~ptr, Square<T>());
 	CudaGlobalPtr<T, CustomAlloc>  val(1, ptr.getStream(), ptr.getAllocator());
 	val.device_alloc();
     val.device_init(T());
     void *d_temp_storage = NULL;
 	size_t temp_storage_size = 0;
-    Square<T> sq;
 
-	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~val, ptr.size, sq, T(), ptr.getStream()));
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_size, input_iter, ~val, ptr.size, ptr.getStream()));
 
     cudaMalloc(&d_temp_storage, temp_storage_size);
 
-	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~val, ptr.size, sq, T(), ptr.getStream()));
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Sum(d_temp_storage, temp_storage_size, input_iter, ~val, ptr.size, ptr.getStream()));
 
 	ptr.streamSync();
 	val.cp_to_host();
@@ -203,7 +229,59 @@ if (ptr.getAllocator() == NULL)
 }
 
 template <typename T>
-static T getMaxOnDevice(CudaGlobalPtr<T> &ptr)
+struct CustomMin
+{
+    __device__ __forceinline__
+    T operator()(const T &a, const T &b) const {
+        if(b >= 1.e-9) return (b < a) ? b : a;
+        else return a;
+    }
+};
+
+template <typename T>
+static T reduceOnDevice(CudaUnifedPtr<T> &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getMaxOnDevice called with pointer of zero size.\n");
+if (ptr.ptr == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null allocator.\n");
+#endif
+	CudaUnifedPtr<T>  reduce_val(ptr.getStream(), ptr.gpu_id, 1);
+	reduce_val.alloc();
+	size_t temp_storage_size = 0;
+    CustomMin<T> myOp;
+    T init = std::numeric_limits<T>::max();
+
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce( NULL, temp_storage_size, ~ptr, ~reduce_val, ptr.size, myOp, init, ptr.getStream()));
+    void *d_temp_storage = NULL;
+
+	if(temp_storage_size==0)
+		temp_storage_size=1;
+
+    //if(CustomAlloc) {
+    //    CudaCustomAllocator::Alloc* alloc = ptr.getAllocator()->alloc(temp_storage_size);
+
+    //    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( alloc->getPtr(), temp_storage_size, ~ptr, ~reduce_val, ptr.size, ptr.getStream()));
+    //} else {
+    //}
+    DEBUG_HANDLE_ERROR(cudaMalloc(&d_temp_storage, temp_storage_size));
+    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~reduce_val, ptr.size, myOp, init, ptr.getStream()));
+
+	ptr.streamSync();
+
+    cudaFree(d_temp_storage);
+
+    //if(CustomAlloc)
+	//    ptr.getAllocator()->free(alloc);
+
+	return reduce_val[0];
+}
+
+template <typename T, bool CustomAlloc = true>
+static T reduceOnDevice(CudaGlobalPtr<T, CustomAlloc > &ptr)
 {
 #ifdef DEBUG_CUDA
 if (ptr.size == 0)
@@ -213,23 +291,118 @@ if (ptr.d_ptr == NULL)
 if (ptr.getAllocator() == NULL)
 	printf("DEBUG_ERROR: getMaxOnDevice called with null allocator.\n");
 #endif
-	CudaGlobalPtr<T >  max_val(1, ptr.getStream(), ptr.getAllocator());
-	max_val.device_alloc();
+	CudaGlobalPtr<T, CustomAlloc >  reduce_val(1, ptr.getStream(), ptr.getAllocator());
+	reduce_val.device_alloc();
 	size_t temp_storage_size = 0;
+    CustomMin<T> myOp;
+    T init = std::numeric_limits<T>::max();
 
-	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( NULL, temp_storage_size, ~ptr, ~max_val, ptr.size));
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce( NULL, temp_storage_size, ~ptr, ~reduce_val, ptr.size, myOp, init, ptr.getStream()));
+    void *d_temp_storage = NULL;
 
 	if(temp_storage_size==0)
 		temp_storage_size=1;
 
-	CudaCustomAllocator::Alloc* alloc = ptr.getAllocator()->alloc(temp_storage_size);
+    //if(CustomAlloc) {
+    //    CudaCustomAllocator::Alloc* alloc = ptr.getAllocator()->alloc(temp_storage_size);
 
-	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( alloc->getPtr(), temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+    //    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( alloc->getPtr(), temp_storage_size, ~ptr, ~reduce_val, ptr.size, ptr.getStream()));
+    //} else {
+    //}
+    DEBUG_HANDLE_ERROR(cudaMalloc(&d_temp_storage, temp_storage_size));
+    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Reduce(d_temp_storage, temp_storage_size, ~ptr, ~reduce_val, ptr.size, myOp, init, ptr.getStream()));
+
+	ptr.streamSync();
+	reduce_val.cp_to_host();
+
+    cudaFree(d_temp_storage);
+
+    //if(CustomAlloc)
+	//    ptr.getAllocator()->free(alloc);
+
+	return reduce_val[0];
+}
+
+template <typename T>
+static T getMaxOnDevice(CudaUnifedPtr<T> &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getMaxOnDevice called with pointer of zero size.\n");
+if (ptr.d_ptr == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null allocator.\n");
+#endif
+	CudaUnifedPtr<T>  max_val(ptr.getStream(), ptr.gpu_id, 1);
+	max_val.alloc();
+	size_t temp_storage_size = 0;
+
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( NULL, temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+    void *d_temp_storage = NULL;
+
+	if(temp_storage_size==0)
+		temp_storage_size=1;
+
+    //if(CustomAlloc) {
+    //    CudaCustomAllocator::Alloc* alloc = ptr.getAllocator()->alloc(temp_storage_size);
+
+    //    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( alloc->getPtr(), temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+    //} else {
+    //}
+    DEBUG_HANDLE_ERROR(cudaMalloc(&d_temp_storage, temp_storage_size));
+    //std::cout << temp_storage_size << " " << d_temp_storage << std::endl;
+    std::cout << ~ptr << " " << ptr.size << " " << ~max_val << " " << ptr.getStream() << std::endl;
+    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max(d_temp_storage, temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+
+	ptr.streamSync();
+
+    cudaFree(d_temp_storage);
+
+    //if(CustomAlloc)
+	//    ptr.getAllocator()->free(alloc);
+
+	return max_val[0];
+}
+
+template <typename T, bool CustomAlloc = true>
+static T getMaxOnDevice(CudaGlobalPtr<T, CustomAlloc > &ptr)
+{
+#ifdef DEBUG_CUDA
+if (ptr.size == 0)
+	printf("DEBUG_ERROR: getMaxOnDevice called with pointer of zero size.\n");
+if (ptr.d_ptr == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null device pointer.\n");
+if (ptr.getAllocator() == NULL)
+	printf("DEBUG_ERROR: getMaxOnDevice called with null allocator.\n");
+#endif
+	CudaGlobalPtr<T, CustomAlloc >  max_val(1, ptr.getStream(), ptr.getAllocator());
+	max_val.device_alloc();
+	size_t temp_storage_size = 0;
+
+	DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( NULL, temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+    void *d_temp_storage = NULL;
+
+	if(temp_storage_size==0)
+		temp_storage_size=1;
+
+    //if(CustomAlloc) {
+    //    CudaCustomAllocator::Alloc* alloc = ptr.getAllocator()->alloc(temp_storage_size);
+
+    //    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max( alloc->getPtr(), temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
+    //} else {
+    //}
+    DEBUG_HANDLE_ERROR(cudaMalloc(&d_temp_storage, temp_storage_size));
+    //std::cout << temp_storage_size << " " << d_temp_storage << std::endl;
+    DEBUG_HANDLE_ERROR(cub::DeviceReduce::Max(d_temp_storage, temp_storage_size, ~ptr, ~max_val, ptr.size, ptr.getStream()));
 
 	max_val.cp_to_host();
 	ptr.streamSync();
 
-	ptr.getAllocator()->free(alloc);
+    cudaFree(d_temp_storage);
+
+    //if(CustomAlloc)
+	//    ptr.getAllocator()->free(alloc);
 
 	return max_val[0];
 }

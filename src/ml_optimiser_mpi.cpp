@@ -257,13 +257,14 @@ void MlOptimiserMpi::initialise()
 						}
 						else
 						{
-							dev_id = textToInteger(allThreadIDs[rank-1][i % (allThreadIDs[rank-1]).size()].c_str());
+							dev_id = textToInteger(allThreadIDs[rank-1][(i + rank-1) % (allThreadIDs[rank-1]).size()].c_str());
 						}
 					}
 					else
 					{
 						dev_id = textToInteger(allThreadIDs[rank-1][i].c_str());
 					}
+                    //dev_id = rank % devCount;
 
 					std::cout << " Thread " << i << " on slave " << rank << " mapped to device " << dev_id << std::endl;
 					node->relion_MPI_Send(&dev_id, 1, MPI_INT, rank, MPITAG_INT, MPI_COMM_WORLD);
@@ -846,7 +847,7 @@ void MlOptimiserMpi::expectation()
 		timer.tic(TIMING_EXP_3);
 #endif
 	// D. Update the angular sampling (all nodes except master)
-	if (!node->isMaster() && do_auto_refine && iter > 1 && subset == 1)
+	if (!node->isMaster() && do_auto_refine && iter > 1 && (subset == 1))
 	{
 		updateAngularSampling(node->rank == 1);
 	}
@@ -961,7 +962,7 @@ void MlOptimiserMpi::expectation()
 			HANDLE_ERROR(cudaMemGetInfo( &free, &total ));
 
 			free = (float) free / (float)cudaDeviceShares[i];
-			size_t required_free = requested_free_gpu_memory + GPU_THREAD_MEMORY_OVERHEAD_MB*1000*1000*threadcountOnDevice[i];
+			size_t required_free = requested_free_gpu_memory + GPU_THREAD_MEMORY_OVERHEAD_MB*1024*1024*threadcountOnDevice[i];
 
 			if (free < required_free)
 			{
@@ -1008,22 +1009,25 @@ void MlOptimiserMpi::expectation()
         	if (nr_subsets > 1)
         	{
          		if (do_split_random_halves)
-         		{
-         			std::cerr << " subset_size= " << subset_size << " nr_subsets= " << nr_subsets << std::endl;
-         			REPORT_ERROR("For now disable split_random_halves and subset usage, although code below should work!");
-         		}
-        		/*
+         		//{
+         		//	std::cerr << " subset_size= " << subset_size << " nr_subsets= " << nr_subsets << std::endl;
+         		//	REPORT_ERROR("For now disable split_random_halves and subset usage, although code below should work!");
+         		//}
 				{
                		// Halfset 1
-         			divide_equally(mydata.numberOfOriginalParticles(1), nr_subsets, subset,
+         			divide_equally(mydata.numberOfOriginalParticles(1), nr_subsets, subset-1,
                				my_subset_first_ori_particle_halfset1, my_subset_last_ori_particle_halfset1);
                		subset_size = my_subset_last_ori_particle_halfset1 - my_subset_first_ori_particle_halfset1 + 1;
 
                		// Halfset 2
-               		divide_equally(mydata.numberOfOriginalParticles(2), nr_subsets, subset,
+               		divide_equally(mydata.numberOfOriginalParticles(2), nr_subsets, subset-1,
                				my_subset_first_ori_particle_halfset2, my_subset_last_ori_particle_halfset2);
                		my_subset_first_ori_particle_halfset2 += mydata.numberOfOriginalParticles(1);
                		my_subset_last_ori_particle_halfset2 += mydata.numberOfOriginalParticles(1);
+                    std::cout << "my_subset_first_ori_particle_halfset1: " << my_subset_first_ori_particle_halfset1;
+                    std::cout << " my_subset_last_ori_particle_halfset1: " << my_subset_last_ori_particle_halfset1 << std::endl;
+                    std::cout << "my_subset_first_ori_particle_halfset2: " << my_subset_first_ori_particle_halfset2;
+                    std::cout << " my_subset_last_ori_particle_halfset2: " << my_subset_last_ori_particle_halfset2 << std::endl;
 
                		// Some safeguards
                		if (my_subset_last_ori_particle_halfset1 >= mydata.numberOfOriginalParticles(1))
@@ -1032,7 +1036,6 @@ void MlOptimiserMpi::expectation()
                			REPORT_ERROR("my_subset_last_ori_particle_halfset2 >= mydata.numberOfOriginalParticles()");
 
         		}
-        		*/
         		else
         		{
                		divide_equally(mydata.numberOfOriginalParticles(), nr_subsets, subset-1, my_subset_first_ori_particle, my_subset_last_ori_particle);
@@ -1370,6 +1373,7 @@ void MlOptimiserMpi::expectation()
 					timer.tic(TIMING_MPISLAVEWAIT3);
 #endif
 
+                    //TODO: overlap expectation with recv
 					// Report to the master how many particles I have processed
 					node->relion_MPI_Send(MULTIDIM_ARRAY(first_last_nr_images), MULTIDIM_SIZE(first_last_nr_images), MPI_LONG, 0, MPITAG_JOB_REQUEST, MPI_COMM_WORLD);
 					// Also send the metadata belonging to those
@@ -1909,11 +1913,17 @@ void MlOptimiserMpi::maximization()
     void* devBundle = NULL;
     if(do_gpu && cudaDevices.size()){
         int dev = node->rank % cudaDevices.size();
-        std::cout << node->rank << " assigned to device " << cudaDevices[dev] << std::endl;
+        std::cout << node->rank << " assigned to device " << cudaDevices[dev] << " and " << do_parallel_disc_io << " " << do_sequential_halves_recons << std::endl;
         MlDeviceBundle * b = new MlDeviceBundle(this);
         b->setDevice(cudaDevices[dev]);
-        b->setStream();
+        //b->setStream();
         devBundle = (void *) b;
+    }
+
+    if (do_auto_refine && has_converged) {
+        mymodel.tv_iters *= 1.5;
+        mymodel.tv_alpha *= 0.9;
+        mymodel.tv_beta *= 0.9;
     }
 
 	for (int ibody = 0; ibody < mymodel.nr_bodies; ibody++)
@@ -1923,6 +1933,8 @@ void MlOptimiserMpi::maximization()
 			RCTIC(timer,RCT_1);
 			// either ibody or iclass can be larger than 0, never 2 at the same time!
 			int ith_recons = (mymodel.nr_bodies > 1) ? ibody : iclass;
+            if(node->rank == 1)
+                std::cout << "class: " << iclass << " " << wsum_model.pdf_class[iclass] << std::endl;
 
 			if (wsum_model.pdf_class[iclass] > 0.)
 			{
@@ -1936,7 +1948,8 @@ void MlOptimiserMpi::maximization()
 				if (node->rank == reconstruct_rank1)
 				{
                     
-					if (do_sgd)
+                    
+					if (do_sgd && !do_nag)
 					{
 
 						MultidimArray<RFLOAT> Iref_old = mymodel.Iref[ith_recons];
@@ -1956,6 +1969,7 @@ void MlOptimiserMpi::maximization()
 								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map);
 
 						// Now update formula: dV_kl^(n) = (mu) * dV_kl^(n-1) + (1-mu)*step_size*G_kl^(n)
+                        MultidimArray<RFLOAT> Igrad_old = mymodel.Igrad[ith_recons];
 						// where G_kl^(n) is now in mymodel.Iref[iclass]!!!
 						FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mymodel.Igrad[ith_recons])
 							DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n) = mu * DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n) +
@@ -1964,26 +1978,62 @@ void MlOptimiserMpi::maximization()
 						// update formula: V_kl^(n+1) = V_kl^(n) + dV_kl^(n)
 						FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mymodel.Iref[ith_recons])
 						{
-							DIRECT_MULTIDIM_ELEM(mymodel.Iref[ith_recons], n) = DIRECT_MULTIDIM_ELEM(Iref_old, n) + DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n);
+							//DIRECT_MULTIDIM_ELEM(mymodel.Iref[ith_recons], n) = DIRECT_MULTIDIM_ELEM(Iref_old, n) + DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n);
+                            DIRECT_MULTIDIM_ELEM(mymodel.Iref[ith_recons], n) = DIRECT_MULTIDIM_ELEM(Iref_old, n) + (1+mu)*DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n) - mu*DIRECT_MULTIDIM_ELEM(Igrad_old, n);
 						}
 
 					}
+                    //else if (do_nag){
+                    //    wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], mymodel.Igrad[ith_recons],
+					//			mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
+					//			mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
+					//			mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
+					//			do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), true, nr_threads, minres_map, 1, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+                    //}
 					else
 					{
-                        
+                       //update weight and data before reconstruct if using online learning
+                       //store ref old
+                       //MultidimArray<RFLOAT> Iref_old;
+                       int cur_iter = (iter - 1)*nr_subsets + subset;
+                       //if(do_nag && cur_iter > 5) Iref_old = mymodel.Iref[ith_recons];
 #ifdef TIMING
+                       //if(cur_iter == 1 && !do_nag) {
+                       //    mymodel.Iref[ith_recons].initZeros();
+                       //}
 						wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], gridding_nr_iter, do_map,
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
 #else
+                       // if(cur_iter == 1 && !do_nag) {
+                       //    mymodel.Iref[ith_recons].initZeros();
+                       //}
 						wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], gridding_nr_iter, do_map,
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
 #endif
+                        //backup weight and data
+                        //TODO: may use move assignment
+                        if(do_nag){
+                            //mymodel.weight_old[ith_recons] = wsum_model.BPref[ith_recons].weight;
+                            //mymodel.data_old[ith_recons] = wsum_model.BPref[ith_recons].data;
+                            //RFLOAT resi = 0.;
+                            //for(int i = 0; i < mymodel.weight_old[ith_recons].nzyxdim; i++){
+                            //    resi += mymodel.weight_old[ith_recons].data[i]*mymodel.weight_old[ith_recons].data[i];
+                            //}
+                            //resi /= mymodel.weight_old[ith_recons].nzyxdim;
+                            //std::cout << "after assignment: " << std::sqrt(resi) << std::endl;
+                            //mymodel.weight_old[ith_recons].printShape();
+                            //if(cur_iter > 5){
+                            //    //RFLOAT av_f = 1./(cur_iter - 4);
+                            //    mymodel.Iref[ith_recons] *= (1. - mu);
+                            //    mymodel.Iref[ith_recons] += Iref_old*mu;
+                            //}
+                        }
                     }
 
 					// Also perform the unregularized reconstruction
@@ -2063,7 +2113,7 @@ void MlOptimiserMpi::maximization()
 						// Rank 2 does not need to do the joined reconstruction
 						if (!do_join_random_halves)
 						{
-							if (do_sgd)
+							if (do_sgd && !do_nag)
 							{
 
 								MultidimArray<RFLOAT> Iref_old = mymodel.Iref[ith_recons];
@@ -2094,14 +2144,39 @@ void MlOptimiserMpi::maximization()
 									DIRECT_MULTIDIM_ELEM(mymodel.Iref[ith_recons], n) = DIRECT_MULTIDIM_ELEM(Iref_old, n) + DIRECT_MULTIDIM_ELEM(mymodel.Igrad[ith_recons], n);
 								}
 
-							}
+							} 
+                            //else if(do_nag) {
+                            //    wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], mymodel.Igrad[ith_recons],
+							//	mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
+							//	mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
+							//	mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
+							//	do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), true, nr_threads, minres_map, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+                            //}
 							else
 							{
+                                //MultidimArray<RFLOAT> Iref_old;
+                                int cur_iter = (iter - 1)*nr_subsets + subset;
+                                //if(do_nag && cur_iter > 5) Iref_old = mymodel.Iref[ith_recons];
+
+                                //if(cur_iter == 1 && !do_nag) {
+                                //    mymodel.Iref[ith_recons].initZeros();
+                                //}
+
 								wsum_model.BPref[ith_recons].reconstruct(mymodel.Iref[ith_recons], gridding_nr_iter, do_map,
 									mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 									mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 									mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-									do_split_random_halves, do_join_random_halves, nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, devBundle);
+									do_split_random_halves, do_join_random_halves, nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
+
+                                if(do_nag){
+                                    //mymodel.weight_old[ith_recons] = wsum_model.BPref[ith_recons].weight;
+                                    //mymodel.data_old[ith_recons] = wsum_model.BPref[ith_recons].data;
+                                    //if(cur_iter > 5){
+                                    //    //RFLOAT av_f = 1./(cur_iter - 4);
+                                    //    mymodel.Iref[ith_recons] *= (1. - mu);
+                                    //    mymodel.Iref[ith_recons] += Iref_old*mu;
+                                    //}
+                                }
 
 							}
 						}
@@ -2182,15 +2257,15 @@ void MlOptimiserMpi::maximization()
 #endif
 		} // end for iclass
 	} // end for ibody
-    
+
 #ifdef DEBUG
 	std::cerr << "rank= "<<node->rank<<" has reached barrier of reconstruction" << std::endl;
 #endif
 	MPI_Barrier(MPI_COMM_WORLD);
-//deallocate gpu
+
+    //deallocate gpu
     if(devBundle)
         delete (MlDeviceBundle*)devBundle;
-
 #ifdef DEBUG
 	std::cerr << "All classes have been reconstructed" << std::endl;
 #endif
@@ -2730,6 +2805,68 @@ void MlOptimiserMpi::readTemporaryDataAndWeightArraysAndReconstruct(int iclass, 
 
 }
 
+void MlOptimiserMpi::onlineUpdate(int ith_recons){
+    //std::cout << "online update " << node->rank << " " << mu << std::endl;
+    if(mymodel.weight_old[ith_recons].getSize()){
+        //swap pointer if the current size is smaller
+        //std::cout << "BPref weight size: " << std::endl;
+        //wsum_model.BPref[ith_recons].weight.printShape();
+        //mymodel.weight_old[ith_recons].printShape();
+        //RFLOAT resi = 0.;
+        //for(int i = 0; i < wsum_model.BPref[ith_recons].weight.nzyxdim; i++){
+        //    resi += wsum_model.BPref[ith_recons].weight.data[i]*wsum_model.BPref[ith_recons].weight.data[i];
+        //}
+        //resi /= wsum_model.BPref[ith_recons].weight.nzyxdim;
+        //std::cout << "before assignment: " << std::sqrt(resi) << std::endl;
+
+        //std::cout << "BPref data size: " << std::endl;
+        //wsum_model.BPref[ith_recons].data.printShape();
+        //mymodel.data_old[ith_recons].printShape();
+        
+        bool swapped = false;
+
+        if(mymodel.weight_old[ith_recons].getSize() > wsum_model.BPref[ith_recons].weight.getSize()){
+            mu = 1. - mu;
+            swapped = true;
+            MultidimArray<RFLOAT> aux;
+            aux.copyShape(wsum_model.BPref[ith_recons].weight);
+            wsum_model.BPref[ith_recons].weight.copyShape(mymodel.weight_old[ith_recons]);
+            mymodel.weight_old[ith_recons].copyShape(aux);
+            MultidimArray<Complex> Faux;
+            Faux.copyShape(wsum_model.BPref[ith_recons].data);
+            wsum_model.BPref[ith_recons].data.copyShape(mymodel.data_old[ith_recons]);
+            mymodel.data_old[ith_recons].copyShape(Faux);
+            std::swap(mymodel.weight_old[ith_recons].nzyxdimAlloc, wsum_model.BPref[ith_recons].weight.nzyxdimAlloc);
+            std::swap(mymodel.data_old[ith_recons].nzyxdimAlloc, wsum_model.BPref[ith_recons].data.nzyxdimAlloc);
+            std::swap(mymodel.weight_old[ith_recons].data, wsum_model.BPref[ith_recons].weight.data);
+            std::swap(mymodel.data_old[ith_recons].data, wsum_model.BPref[ith_recons].data.data);
+        }
+        FOR_ALL_ELEMENTS_IN_ARRAY3D(wsum_model.BPref[ith_recons].weight){
+            if(k >= STARTINGZ(mymodel.weight_old[ith_recons]) && k <= FINISHINGZ(mymodel.weight_old[ith_recons]) 
+                    && i >= STARTINGY(mymodel.weight_old[ith_recons]) && i <= FINISHINGY(mymodel.weight_old[ith_recons])
+                    && j >= STARTINGX(mymodel.weight_old[ith_recons]) && j <= FINISHINGX(mymodel.weight_old[ith_recons])) {
+                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+
+            } else {
+                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= (1. - mu);
+                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= (1. - mu);
+            }
+        }
+        if(swapped) mu = 1. - mu;
+    }
+    mymodel.weight_old[ith_recons] = wsum_model.BPref[ith_recons].weight;
+    mymodel.data_old[ith_recons] = wsum_model.BPref[ith_recons].data;
+    RFLOAT resi = 0.;
+    //for(int i = 0; i < mymodel.weight_old[ith_recons].nzyxdim; i++){
+    //    resi += mymodel.weight_old[ith_recons].data[i]*mymodel.weight_old[ith_recons].data[i];
+    //}
+    //resi /= mymodel.weight_old[ith_recons].nzyxdim;
+    //std::cout << "after assignment: " << std::sqrt(resi) << std::endl;
+    //mymodel.weight_old[ith_recons].printShape();
+
+}
+
 void MlOptimiserMpi::compareTwoHalves()
 {
 #ifdef DEBUG
@@ -2744,12 +2881,25 @@ void MlOptimiserMpi::compareTwoHalves()
 
 	// Only do gold-standard FSC comparisons for single-class refinements
 	int iclass = 0;
+
 	// The first two slaves calculate the sum of the downsampled average of all bodies
 	if (node->rank == 1 || node->rank == 2)
 	{
 		MultidimArray<Complex > avg1;
 
-		if (do_sgd)
+        //if(do_nag){
+        //    for (int ibody = 0; ibody < mymodel.nr_bodies; ibody++)
+        //    {
+        //        for (int iclass = 0; iclass < mymodel.nr_classes; iclass++)
+        //        {
+        //            int ith_recons = (mymodel.nr_bodies > 1) ? ibody : iclass;
+        //            onlineUpdate(ith_recons);
+        //        }
+        //    }
+
+        //}
+
+		if (do_sgd && !do_nag)// || (do_nag && cur_iter != 1))
 		{
 			FourierTransformer transformer;
 			transformer.FourierTransform(mymodel.Iref[iclass], avg1);
@@ -2761,7 +2911,7 @@ void MlOptimiserMpi::compareTwoHalves()
 			for (int ibody = 0; ibody < mymodel.nr_bodies; ibody++ )
 			{
 				MultidimArray<Complex > tmp1;
-				wsum_model.BPref[ibody].getDownsampledAverage(tmp1);
+                wsum_model.BPref[ibody].getDownsampledAverage(tmp1);
 
 				if (mymodel.nr_bodies > 1)
 				{
@@ -2828,7 +2978,7 @@ void MlOptimiserMpi::compareTwoHalves()
 			MultidimArray<Complex > avg2;
 			avg2.resize(avg1);
 			node->relion_MPI_Recv(MULTIDIM_ARRAY(avg2), 2*MULTIDIM_SIZE(avg2), MY_MPI_DOUBLE, 2, MPITAG_IMAGE, MPI_COMM_WORLD, status);
-			if (do_sgd)
+			if (do_sgd)// || (do_nag && cur_iter != 1))
 			{
 				getFSC(avg1, avg2, mymodel.fsc_halves_class);
 			}
@@ -2877,6 +3027,50 @@ void MlOptimiserMpi::iterate()
 #ifdef TIMING
 		timer.tic(TIMING_EXP);
 #endif
+        //reshuffle particles if do_nag
+        //if(do_nag){
+        //    std::srand(time(0));
+        //    if(do_split_random_halves){
+        //        std::random_shuffle(mydata.ori_particles.begin(), mydata.ori_particles.begin() + mydata.numberOfOriginalParticles(1));
+        //        std::random_shuffle(mydata.ori_particles.begin() + mydata.numberOfOriginalParticles(1), mydata.ori_particles.end());
+        //    } else {
+        //        std::random_shuffle(mydata.ori_particles.begin(), mydata.ori_particles.end());
+        //    }
+        //}
+        if (node->isMaster())
+        {
+            random_seed = time(NULL);
+            for (int slave = 1; slave < node->size; slave++)
+                node->relion_MPI_Send(&random_seed, 1, MPI_INT, slave, MPITAG_RANDOMSEED, MPI_COMM_WORLD);
+        }
+        else
+        {
+            MPI_Status status;
+            node->relion_MPI_Recv(&random_seed, 1, MPI_INT, 0, MPITAG_RANDOMSEED, MPI_COMM_WORLD, status);
+        }
+
+        if(do_nag && iter != 1) {
+            if(do_split_random_halves){
+                mydata.divideOriginalParticlesInRandomHalves(random_seed, do_helical_refine);
+            } else {
+                mydata.randomiseParticlesOrder(random_seed);
+            }
+            std::cout << "Randomized particle order! " << random_seed << std::endl;
+        }
+        //TODO randomize particle order
+
+        if(iter != 1){
+            if(mymodel.do_tv){
+                mymodel.tv_alpha *= exp(-0.04);
+                mymodel.tv_beta *= exp(-0.04);
+                mymodel.tv_weight *= exp(0.025);
+            }
+            acceptance_ratio *= 1.035;
+        }
+
+        if(do_nag && iter != 1) {
+            nr_subsets = std::max(nr_subsets*0.95, 1.);
+        }
 
 		for (subset = subset_start; subset <= nr_subsets; subset++)
 		{
@@ -2886,11 +3080,17 @@ void MlOptimiserMpi::iterate()
 			// Only first slave checks for convergence and prints stats to the stdout
 			if (do_auto_refine)
 				checkConvergence(node->rank == 1);
+            
+            //upon convergence, use the whole set
+            if(do_auto_refine && has_converged && do_nag){
+                subset = subset_start;
+                nr_subsets = 1;
+            }
 
 			expectation();
 
 			int old_verb = verb;
-			if (nr_subsets > 1) // be quiet
+			if (!do_nag && nr_subsets > 1 || do_sgd) // be quiet
 				verb = 0;
 
 			MPI_Barrier(MPI_COMM_WORLD);
@@ -2952,6 +3152,32 @@ void MlOptimiserMpi::iterate()
 
 			// Inside iterative refinement: do FSC-calculation BEFORE the solvent flattening, otherwise over-estimation of resolution
 			// anyway, now that this is done inside BPref, there would be no other way...
+            if(do_nag && !node->isMaster()){
+
+                for (int ibody = 0; ibody < mymodel.nr_bodies; ibody++)
+                {
+                    for (int iclass = 0; iclass < mymodel.nr_classes; iclass++)
+                    {
+                        int ith_recons = (mymodel.nr_bodies > 1) ? ibody : iclass;
+                        if (wsum_model.pdf_class[iclass] > 0.)
+                        {
+                            // Parallelise: each MPI-node has a different reference
+                            int reconstruct_rank1, reconstruct_rank2;
+                            if (do_split_random_halves) {
+                                reconstruct_rank1 = 2 * (ith_recons % ( (node->size - 1)/2 ) ) + 1;
+                                reconstruct_rank2 = 2 * (ith_recons % ( (node->size - 1)/2 ) ) + 2;
+
+                            }
+                            else
+                                reconstruct_rank1 = ith_recons % (node->size - 1) + 1;
+                            if(node->rank == reconstruct_rank1 || (do_split_random_halves && node->rank == reconstruct_rank2))
+                                onlineUpdate(ith_recons);
+                        }
+                    }
+                }
+
+            }
+
 			if (do_split_random_halves)
 			{
 
@@ -2974,12 +3200,15 @@ void MlOptimiserMpi::iterate()
 					int fsc0143 = -1;
 					FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY1D(mymodel.fsc_halves_class)
 					{
+                        //if(node->rank == 1)
+                        //    std::cout << DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) << std::endl;
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) < 0.5 && fsc05 < 0)
 							fsc05 = i;
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) < 0.143 && fsc0143 < 0)
 							fsc0143 = i;
 					}
 					// At least fsc05 - fsc0143 + 5 shells as incr_size
+                    std::cout << "Node: " << node->rank <<  " fsc05: " << fsc05 << " fsc0143: " << fsc0143 << std::endl;
 					incr_size = XMIPP_MAX(incr_size, fsc0143 - fsc05 + 5);
 					has_high_fsc_at_limit = (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, mymodel.current_size/2 - 1) > 0.2);
 				}
@@ -3081,7 +3310,7 @@ void MlOptimiserMpi::iterate()
 			if (do_join_random_halves)
 				iter = -1;
 
-			if (node->rank == 1 || (do_split_random_halves && !do_join_random_halves && node->rank == 2))
+			if ((node->rank == 1 || (do_split_random_halves && !do_join_random_halves && node->rank == 2)))// && !(do_nag && iter % 5 != 0))
 				//Only the first_slave of each subset writes model to disc (do not write the data.star file, only master will do this)
 				MlOptimiser::write(DO_WRITE_SAMPLING, DONT_WRITE_DATA, do_write_optimiser, DO_WRITE_MODEL, node->rank);
 			else if (node->isMaster())

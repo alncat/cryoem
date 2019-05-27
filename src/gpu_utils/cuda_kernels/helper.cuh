@@ -15,6 +15,67 @@
 #else
 #define FAILSAFE_PRIOR_MIN_LIM 1e-30
 #endif
+template<bool failsafe,typename weights_t>
+__global__ void cuda_kernel_exponentiate_weights_coarse(
+		XFLOAT *g_pdf_orientation,
+		XFLOAT *g_pdf_offset,
+		weights_t *g_Mweight,
+		XFLOAT avg_diff2,
+		XFLOAT min_diff2,
+		int nr_coarse_orient,
+		int nr_coarse_trans,
+        int tot_size)
+{
+    int idx = blockIdx.x*SUMW_BLOCK_SIZE + threadIdx.x;
+    int cid = blockIdx.y;
+	//int cid = idx/(nr_coarse_orient*nr_coarse_trans);
+    //int iorient = (idx - cid*nr_coarse_orient*nr_coarse_trans)/nr_coarse_trans;
+    int iorient = idx/nr_coarse_trans;
+    //int itrans = idx - cid*nr_coarse_orient*nr_coarse_trans - iorient*nr_coarse_trans;
+    int itrans = (idx - iorient*nr_coarse_trans);
+    iorient += cid*nr_coarse_orient;
+    itrans += cid*nr_coarse_trans;
+    idx += cid*nr_coarse_orient*nr_coarse_trans;
+
+	weights_t weight;
+    if(idx < tot_size)
+    {
+        weights_t diff2 = g_Mweight[idx];
+        if( diff2 < min_diff2 )
+            weight = 0.0;
+        else
+        {
+            diff2 -= min_diff2;
+            //if(g_pdf_orientation[iorient] < 0 || g_pdf_offset[itrans] < 0) printf("%d, %d\n", iorient, itrans);
+            weight = g_pdf_orientation[iorient] * g_pdf_offset[itrans];          	// Same for all threads - TODO: should be done once for all trans through warp-parallel execution
+
+            // next line because of numerical precision of exp-function
+#ifdef CUDA_DOUBLE_PRECISION
+            if (diff2 > 700.)
+                weight = 0.;
+            else
+                weight *= exp(-diff2);
+#else
+            if (diff2 > 86.)
+                weight = 0.;
+            else
+                weight *= expf(-diff2);
+#endif
+        }
+        // Store the weight
+        g_Mweight[idx] = weight; // TODO put in shared mem
+    }
+}
+
+template<typename T>
+__global__ void my_check_gprocessed(T *g_processed,
+                            int size)
+{
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    if(idx < size){
+        if(g_processed[idx] == 0) printf("%d\n", idx);
+    }
+}
 
 template<bool failsafe,typename weights_t>
 __global__ void cuda_kernel_exponentiate_weights_coarse(
@@ -35,14 +96,16 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 	//int pos, iorient = bid*SUMW_BLOCK_SIZE+tid;
     int iorient =  bid*SUMW_BLOCK_SIZE + tid;
 
+    //if(tid == 0 && cid == 1) printf("%d\n", bid);
 	weights_t weight;
 	if(iorient < nr_coarse_orient)
 	{
+        int prefix = cid*nr_coarse_orient*nr_coarse_trans + iorient*nr_coarse_trans;
+        iorient += cid*nr_coarse_orient;//the index for this orientation in the cid class
 		for (int itrans=0; itrans<nr_coarse_trans; itrans++)
 		{
-			//int pos = cid * nr_coarse_orient * nr_coarse_trans + iorient * nr_coarse_trans + itrans;
-            iorient += cid*nr_coarse_orient;//the index for this orientation in the cid class
-            int pos = iorient*nr_coarse_trans + itrans;
+			int pos = prefix + itrans;
+            //int pos = iorient*nr_coarse_trans + itrans;
             int citrans = cid * nr_coarse_trans + itrans;//the index for this translation in the cid class
 			weights_t diff2 = g_Mweight[pos];
 			if( diff2 < min_diff2 ) //TODO Might be slow (divergent threads)
@@ -73,6 +136,8 @@ __global__ void cuda_kernel_exponentiate_weights_coarse(
 
 			// Store the weight
 			g_Mweight[pos] = weight; // TODO put in shared mem
+            //if(bid == 0)
+            //printf("%d %d %d %d\n", pos, cid, bid, iorient);
 		}
 	}
 }
@@ -393,6 +458,23 @@ __global__ void cuda_kernel_multi( XFLOAT *A,
 __global__ void cuda_kernel_substract(XFLOAT *A,
                                       XFLOAT *B,
                                       int image_size);
+
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                      XFLOAT *B,
+                                      XFLOAT *C,
+                                      XFLOAT l,
+                                      int image_size);
+
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                     XFLOAT *B,
+                                     XFLOAT *C,
+                                     XFLOAT l,
+                                     int Z,
+                                     int Y,
+                                     int X,
+                                     int image_size);
+
+
 template<typename T>
 __global__ void cuda_kernel_reset_nan(
         T *A,
@@ -432,6 +514,17 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
 								   XFLOAT S,
 		  	  	  	  	  	  	   int image_size);
 
+__global__ void cuda_kernel_complex_multi( XFLOAT *A,
+                                   XFLOAT *B,
+                                   XFLOAT S,
+                                   int Z,
+                                   int Y,
+                                   int X,
+                                   int ZZ,
+                                   int YY,
+                                   int XX,
+                                   int image_size);
+
 __global__ void cuda_kernel_update_momentum(XFLOAT *grads,
                                             XFLOAT *momentum,
                                             XFLOAT mu,
@@ -445,6 +538,26 @@ __global__ void cuda_kernel_finalizeMstddev( XFLOAT *Mstddev,
 											 int image_size);
 
 __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *grads,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           int image_size);
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *grads,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           int X,
+                                           int Y,
+                                           int Z,
+                                           int XX,
+                                           int YY,
+                                           int ZZ,
+                                           int image_size);
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT *momentum,
                                            XFLOAT *grads,
                                            XFLOAT mu,
@@ -453,11 +566,48 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT eps,
                                            int image_size);
 
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *momentum,
+                                           XFLOAT *grads,
+                                           int Z,
+                                           int Y,
+                                           int X,
+                                           XFLOAT mu,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           int image_size);
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *momentum,
+                                           XFLOAT *grads,
+                                           XFLOAT *curvature,
+                                           XFLOAT mu,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
+                                           XFLOAT epsadam,
+                                           XFLOAT mut,
+                                           int image_size);
+
 __global__ void cuda_kernel_graph_grad(XFLOAT *img,
                                        XFLOAT *grads,
                                        int Z,
                                        int Y,
                                        int X,
+                                       XFLOAT beta,
+                                       XFLOAT epslog,
+                                       XFLOAT eps,
+                                       int image_size);
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Z,
+                                       int Y,
+                                       int X,
+                                       int ZZ,
+                                       int YY,
+                                       int XX,
                                        XFLOAT beta,
                                        XFLOAT epslog,
                                        XFLOAT eps,
@@ -478,6 +628,13 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
  */
 __global__ void cuda_kernel_square(
 		XFLOAT *A,
+		int image_size);
+
+//out of place square
+__global__ void cuda_kernel_square(
+		XFLOAT *A,
+        XFLOAT *B,
+        XFLOAT beta,
 		int image_size);
 
 /*

@@ -46,6 +46,7 @@
 #ifndef __RELIONFFTW_H
 #define __RELIONFFTW_H
 
+#include <algorithm>
 #include <fftw3.h>
 #include "src/multidim_array.h"
 #include "src/funcs.h"
@@ -216,6 +217,14 @@ public:
             Transform(FFTW_BACKWARD);
         }
 
+    template <typename T, typename T1>
+        void inverseFourierTransform(T& V, T1& v, int nr_threads)
+        {
+            setReal(v, nr_threads);
+            setFourier(V);
+            Transform(FFTW_BACKWARD);
+        }
+
     /** Get Fourier coefficients. */
     template <typename T>
         void getFourierAlias(T& V) {V.alias(fFourier); return;}
@@ -327,6 +336,8 @@ public:
     */
     void cleanup();
 
+    void cleanup_threads();
+
     /** Destroy both forward and backward fftw planes (mutex locked */
     void destroyPlans();
 
@@ -348,6 +359,8 @@ public:
         the result will be stored in img. This means that the size
         of img cannot change between calls. */
     void setReal(MultidimArray<RFLOAT> &img);
+
+    void setReal(MultidimArray<RFLOAT> &img, int nr_threads);
 
     /** Set a Multidimarray for input.
         The data of img will be the one of fComplex. In forward
@@ -396,7 +409,7 @@ void CenterFFT(MultidimArray< T >& v, bool forward)
             else if (ip >= l)
                 ip -= l;
 
-            aux(ip) = DIRECT_A1D_ELEM(v, i);
+            DIRECT_A1D_ELEM(aux, ip) = DIRECT_A1D_ELEM(v, i);
         }
 
         // Copy the vector
@@ -407,29 +420,29 @@ void CenterFFT(MultidimArray< T >& v, bool forward)
     {
         // 2D
         MultidimArray< T > aux;
-        int l, shift;
+        int l, shift, sshift;
 
         // Shift in the X direction
         l = XSIZE(v);
         aux.reshape(l);
-        shift = (int)(l / 2);
+        sshift = shift = (int)(l / 2);
 
         if (!forward)
-            shift = -shift;
+            sshift = -shift;
 
         for (int i = 0; i < YSIZE(v); i++)
         {
             // Shift the input in an auxiliar vector
             for (int j = 0; j < l; j++)
             {
-                int jp = j + shift;
+                int jp = j + sshift;
 
                 if (jp < 0)
                     jp += l;
                 else if (jp >= l)
                     jp -= l;
 
-                aux(jp) = DIRECT_A2D_ELEM(v, i, j);
+                DIRECT_A1D_ELEM(aux, jp) = DIRECT_A2D_ELEM(v, i, j);
             }
 
             // Copy the vector
@@ -439,45 +452,79 @@ void CenterFFT(MultidimArray< T >& v, bool forward)
 
         // Shift in the Y direction
         l = YSIZE(v);
-        aux.reshape(l);
-        shift = (int)(l / 2);
+        //aux.reshape(l);
+        sshift = shift = (int)(l / 2);
 
         if (!forward)
-            shift = -shift;
-
-        for (int j = 0; j < XSIZE(v); j++)
-        {
-            // Shift the input in an auxiliar vector
-            for (int i = 0; i < l; i++)
-            {
-                int ip = i + shift;
-
-                if (ip < 0)
-                    ip += l;
-                else if (ip >= l)
-                    ip -= l;
-
-                aux(ip) = DIRECT_A2D_ELEM(v, i, j);
+            sshift = -shift;
+        for (int i = 0; i < shift; i++){
+            int ip = i + sshift;
+            if(ip < 0) ip += l;
+            else if(ip >= l) ip -= l;
+            //swap v[i, :] and v[ip, :]
+            //std::cout << i << ", " << ip << std::endl;
+            std::copy(v.data + ip*XSIZE(v), v.data + (ip+1)*XSIZE(v), aux.data);
+            std::copy(v.data + i*XSIZE(v), v.data + (i+1)*XSIZE(v), v.data + ip*XSIZE(v));
+            std::copy(aux.data, aux.data + XSIZE(v), v.data + i*XSIZE(v));
+        }
+        if(l % 2){
+            if(sshift > 0){
+                //copy v[shift, :]
+                std::copy(v.data, v.data + XSIZE(v), aux.data);
+                //shift the vectors in v[1:shift-1, :] left
+                for(int i = 1; i < shift; i++){
+                    std::copy(v.data + i*XSIZE(v), v.data + (i+1)*XSIZE(v), v.data + (i-1)*XSIZE(v));
+                }
+                //copy v[l-1, :] to v[shift-1, :]
+                std::copy(v.data + (l-1)*XSIZE(v), v.data + l*XSIZE(v), v.data + (shift-1)*XSIZE(v));
+                //copy aux to v[l-1, :]
+                std::copy(aux.data, aux.data + XSIZE(v), v.data + (l-1)*XSIZE(v));
+            } else {
+                //backup v[shift, :]
+                std::copy(v.data + shift*XSIZE(v), v.data + (shift+1)*XSIZE(v), aux.data);
+                //shift the vectors in v[k, 0:shift-1, :] right
+                for(int i = shift-1; i >= 0; i--){
+                    std::copy(v.data + i*XSIZE(v), v.data + (i+1)*XSIZE(v), v.data + (i+1)*XSIZE(v));
+                }
+                //copy aux to v[0, :]
+                std::copy(aux.data, aux.data + XSIZE(v), v.data);
             }
 
-            // Copy the vector
-            for (int i = 0; i < l; i++)
-                DIRECT_A2D_ELEM(v, i, j) = DIRECT_A1D_ELEM(aux, i);
         }
+
+        //for (int j = 0; j < XSIZE(v); j++)
+        //{
+        //    // Shift the input in an auxiliar vector
+        //    for (int i = 0; i < l; i++)
+        //    {
+        //        int ip = i + shift;
+
+        //        if (ip < 0)
+        //            ip += l;
+        //        else if (ip >= l)
+        //            ip -= l;
+
+        //        aux(ip) = DIRECT_A2D_ELEM(v, i, j);
+        //    }
+
+        //    // Copy the vector
+        //    for (int i = 0; i < l; i++)
+        //        DIRECT_A2D_ELEM(v, i, j) = DIRECT_A1D_ELEM(aux, i);
+        //}
     }
     else if ( v.getDim() == 3 )
     {
         // 3D
         MultidimArray< T > aux;
-        int l, shift;
+        int l, shift, sshift;
 
         // Shift in the X direction
         l = XSIZE(v);
         aux.reshape(l);
-        shift = (int)(l / 2);
+        sshift = shift = (int)(l / 2);
 
         if (!forward)
-            shift = -shift;
+            sshift = -shift;
 
         for (int k = 0; k < ZSIZE(v); k++)
             for (int i = 0; i < YSIZE(v); i++)
@@ -485,77 +532,161 @@ void CenterFFT(MultidimArray< T >& v, bool forward)
                 // Shift the input in an auxiliar vector
                 for (int j = 0; j < l; j++)
                 {
-                    int jp = j + shift;
+                    int jp = j + sshift;
 
                     if (jp < 0)
                         jp += l;
                     else if (jp >= l)
                         jp -= l;
 
-                    aux(jp) = DIRECT_A3D_ELEM(v, k, i, j);
+                    DIRECT_A1D_ELEM(aux, jp) = DIRECT_A3D_ELEM(v, k, i, j);
                 }
 
                 // Copy the vector
-                for (int j = 0; j < l; j++)
-                    DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, j);
+                std::copy(aux.data, aux.data + l, v.data + k*YXSIZE(v)+i*XSIZE(v));
+                //for (int j = 0; j < l; j++)
+                //    DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, j);
             }
 
         // Shift in the Y direction
         l = YSIZE(v);
-        aux.reshape(l);
-        shift = (int)(l / 2);
+        //aux.reshape(l);
+        sshift = shift = (int)(l / 2);
 
         if (!forward)
-            shift = -shift;
+            sshift = -shift;
 
         for (int k = 0; k < ZSIZE(v); k++)
-            for (int j = 0; j < XSIZE(v); j++)
-            {
-                // Shift the input in an auxiliar vector
-                for (int i = 0; i < l; i++)
-                {
-                    int ip = i + shift;
-
-                    if (ip < 0)
-                        ip += l;
-                    else if (ip >= l)
-                        ip -= l;
-
-                    aux(ip) = DIRECT_A3D_ELEM(v, k, i, j);
+            for (int i = 0; i < shift; i++){
+                int ip = i + sshift;
+                if(ip < 0) ip += l;
+                else if(ip >= l) ip -= l;
+                //swap v[k, i, :] and v[k, ip, :]
+                std::copy(v.data + k*YXSIZE(v)+ip*XSIZE(v), v.data + k*YXSIZE(v)+(ip+1)*XSIZE(v), aux.data);
+                std::copy(v.data + k*YXSIZE(v)+i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), v.data + k*YXSIZE(v) + ip*XSIZE(v));
+                std::copy(aux.data, aux.data + XSIZE(v), v.data + k*YXSIZE(v)+i*XSIZE(v));
+            }
+        if(l % 2){
+            if(sshift > 0){
+                for(int k = 0; k < ZSIZE(v); k++){
+                    //copy v[k, 0, :]
+                    std::copy(v.data + k*YXSIZE(v), v.data + k*YXSIZE(v) + XSIZE(v), aux.data);
+                    //shift the vectors in v[k, 1:shift-1, :] left
+                    for(int i = 1; i < shift; i++){
+                        std::copy(v.data + k*YXSIZE(v) + i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), v.data + k*YXSIZE(v) + (i-1)*XSIZE(v));
+                    }
+                    //copy v[k, l-1, :] to v[k, shift-1, :]
+                    std::copy(v.data + k*YXSIZE(v) + (l-1)*XSIZE(v), v.data + k*YXSIZE(v)+l*XSIZE(v), v.data + k*YXSIZE(v) + (shift-1)*XSIZE(v));
+                    //copy aux to v[k, l-1, :]
+                    std::copy(aux.data, aux.data + XSIZE(v), v.data + k*YXSIZE(v) + (l-1)*XSIZE(v));
+                }
+            } else {
+                for(int k = 0; k < ZSIZE(v); k++){
+                    //backup v[k, shift, :]
+                    std::copy(v.data + k*YXSIZE(v) + shift*XSIZE(v), v.data + k*YXSIZE(v) + (shift+1)*XSIZE(v), aux.data);
+                    //shift the vectors in v[k, 0:shift-1, :] right
+                    for(int i = shift-1; i >= 0; i--){
+                        std::copy(v.data + k*YXSIZE(v) + i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), v.data + k*YXSIZE(v) + (i+1)*XSIZE(v));
+                    }
+                    //copy aux to v[k, 0, :]
+                    std::copy(aux.data, aux.data + XSIZE(v), v.data + k*YXSIZE(v));
                 }
 
-                // Copy the vector
-                for (int i = 0; i < l; i++)
-                    DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, i);
             }
+
+        }
+
+        //for (int k = 0; k < ZSIZE(v); k++)
+        //    for (int j = 0; j < XSIZE(v); j++)
+        //    {
+        //        // Shift the input in an auxiliar vector
+        //        for (int i = 0; i < l; i++)
+        //        {
+        //            int ip = i + shift;
+
+        //            if (ip < 0)
+        //                ip += l;
+        //            else if (ip >= l)
+        //                ip -= l;
+
+        //            aux(ip) = DIRECT_A3D_ELEM(v, k, i, j);
+        //        }
+
+        //        // Copy the vector
+        //        for (int i = 0; i < l; i++)
+        //            DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, i);
+        //    }
 
         // Shift in the Z direction
         l = ZSIZE(v);
-        aux.reshape(l);
-        shift = (int)(l / 2);
+        //aux.reshape(XSIZE(v));
+        sshift = shift = (int)(l / 2);
 
         if (!forward)
-            shift = -shift;
+            sshift = -shift;
+        
+        for (int k = 0; k < shift; k++) {
+            int kp = k + sshift;
+            if(kp < 0) kp += l;
+            else if(kp >= l) kp -= l;
+            for (int i = 0; i < YSIZE(v); i++){
+                //swap v[k, i, :] and v[kp, i, :]
+                std::copy(v.data + k*YXSIZE(v)+i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), aux.data);
+                std::copy(v.data + kp*YXSIZE(v)+i*XSIZE(v), v.data + kp*YXSIZE(v)+(i+1)*XSIZE(v), v.data + k*YXSIZE(v) + i*XSIZE(v));
+                std::copy(aux.data, aux.data + XSIZE(v), v.data + kp*YXSIZE(v)+i*XSIZE(v));
+            }
+        }
 
-        for (int i = 0; i < YSIZE(v); i++)
-            for (int j = 0; j < XSIZE(v); j++)
-            {
-                // Shift the input in an auxiliar vector
-                for (int k = 0; k < l; k++)
-                {
-                    int kp = k + shift;
-                    if (kp < 0)
-                        kp += l;
-                    else if (kp >= l)
-                        kp -= l;
-
-                    aux(kp) = DIRECT_A3D_ELEM(v, k, i, j);
+        if(l % 2){
+            if(sshift > 0){
+                for(int i = 0; i < YSIZE(v); i++){
+                    //copy v[0, i, :]
+                    std::copy(v.data + i*XSIZE(v), v.data + (i+1)*XSIZE(v), aux.data);
+                    //shift the vectors in v[1:shift-1, i, :] left
+                    for(int k = 1; k < shift; k++){
+                        std::copy(v.data + k*YXSIZE(v) + i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), v.data + (k-1)*YXSIZE(v) + i*XSIZE(v));
+                    }
+                    //copy v[l-1, i, :] to v[shift-1, i, :]
+                    std::copy(v.data + (l-1)*YXSIZE(v) + i*XSIZE(v), v.data + (l-1)*YXSIZE(v)+(i+1)*XSIZE(v), v.data + (shift-1)*YXSIZE(v) + i*XSIZE(v));
+                    //copy aux to v[l-1, i, :]
+                    std::copy(aux.data, aux.data + XSIZE(v), v.data + (l-1)*YXSIZE(v) + i*XSIZE(v));
+                }
+            } else {
+                for(int i = 0; i < YSIZE(v); i++){
+                    //backup v[shift, i, :]
+                    std::copy(v.data + shift*YXSIZE(v) + i*XSIZE(v), v.data + shift*YXSIZE(v) + (i+1)*XSIZE(v), aux.data);
+                    //shift the vectors in v[0:shift-1, i, :] right
+                    for(int k = shift-1; k >= 0; k--){
+                        std::copy(v.data + k*YXSIZE(v) + i*XSIZE(v), v.data + k*YXSIZE(v)+(i+1)*XSIZE(v), v.data + (k+1)*YXSIZE(v) + i*XSIZE(v));
+                    }
+                    //copy aux to v[0, i, :]
+                    std::copy(aux.data, aux.data + XSIZE(v), v.data + i*XSIZE(v));
                 }
 
-                // Copy the vector
-                for (int k = 0; k < l; k++)
-                    DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, k);
             }
+
+        }
+
+
+        //for (int i = 0; i < YSIZE(v); i++)
+        //    for (int j = 0; j < XSIZE(v); j++)
+        //    {
+        //        // Shift the input in an auxiliar vector
+        //        for (int k = 0; k < l; k++)
+        //        {
+        //            int kp = k + shift;
+        //            if (kp < 0)
+        //                kp += l;
+        //            else if (kp >= l)
+        //                kp -= l;
+
+        //            aux(kp) = DIRECT_A3D_ELEM(v, k, i, j);
+        //        }
+
+        //        // Copy the vector
+        //        for (int k = 0; k < l; k++)
+        //            DIRECT_A3D_ELEM(v, k, i, j) = DIRECT_A1D_ELEM(aux, k);
+        //    }
     }
     else
     {
@@ -563,7 +694,6 @@ void CenterFFT(MultidimArray< T >& v, bool forward)
     	REPORT_ERROR("CenterFFT ERROR: Dimension should be 1, 2 or 3");
     }
 }
-
 
 
 // Window an FFTW-centered Fourier-transform to a given size

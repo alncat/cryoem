@@ -46,8 +46,8 @@
 
 #include <pthread.h>
 #include <stdio.h>
-#include <random>
 #include <stdlib.h>
+#include <ctime>
 #include "src/error.h"
 
 // This code was copied from a developmental version of Xmipp-3.0
@@ -370,13 +370,13 @@ class ThreadTaskDistributor: public ParallelTaskDistributor
 
 public:
     //randomly accept or reject current batch
-    std::default_random_engine generator;
-    std::uniform_real_distribution<double> distribution;
+    //std::default_random_engine generator;
+    //std::uniform_real_distribution<double> distribution;
     double acceptFrac;//default acceptance ratio
 
 	ThreadTaskDistributor(size_t nTasks, size_t bSize):ParallelTaskDistributor(nTasks, bSize) {}
     ThreadTaskDistributor(size_t nTasks, size_t bSize, double acceptance_ratio, int rank):ParallelTaskDistributor(nTasks, bSize),
-    acceptFrac(acceptance_ratio), generator(std::default_random_engine(rank)), distribution(std::uniform_real_distribution<double>(0.,1.)) {}
+    acceptFrac(acceptance_ratio) { srand(time(NULL)+rank); }
     virtual ~ThreadTaskDistributor(){};
 
 protected:

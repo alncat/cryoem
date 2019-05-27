@@ -290,6 +290,9 @@ public:
 	//////////////// Stochastic gradient descent
 	bool do_sgd;
 
+    //nesterov accelerated gradient descent
+    bool do_nag;
+
 	// Momentum update parameter
 	RFLOAT mu;
 

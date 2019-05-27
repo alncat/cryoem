@@ -912,6 +912,7 @@ void getAllSquaredDifferencesCoarse(
 	for (int exp_iclass = sp.iclass_min; exp_iclass <= sp.iclass_max; exp_iclass++)
 		allWeights_size += projectorPlans[exp_iclass].orientation_num * sp.nr_trans*sp.nr_oversampled_trans;
 
+    if(allWeights_size == 0) std::cout << "WRONG at " << projectorPlans[0].orientation_num << std::endl;
 	CudaGlobalPtr<XFLOAT> allWeights(allWeights_size,cudaMLO->devBundle->allocator);
 	allWeights.device_alloc();
 
@@ -1670,16 +1671,17 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 						ipart * op.Mweight.xdim + sp.nr_dir * sp.nr_psi * sp.nr_trans * sp.iclass_min,
 						(sp.iclass_max-sp.iclass_min+1) * sp.nr_dir * sp.nr_psi * sp.nr_trans);
                 
-                CudaGlobalPtr<weights_t> nans(ipartMweight.getSize(), cudaMLO->devBundle->allocator);
+                
+                //CudaGlobalPtr<weights_t> nans(ipartMweight.getSize(), cudaMLO->devBundle->allocator);
 
-                nans.device_alloc();
+                //nans.device_alloc();
 
                 //IsNanOp<weights_t> IsNan;
-                MoreThanCubOpt<weights_t> MoreThanMin(op.min_diff2[ipart] - 1.);
-                size_t nanSize = filterOnDevice(ipartMweight, nans, MoreThanMin);
-                nans.setSize(nanSize);
-                weights_t min_d = getMinOnDevice(nans);
-                weights_t av_d = getSumOnDevice(nans) / nans.getSize();
+                //MoreThanCubOpt<weights_t> MoreThanMin(op.min_diff2[ipart] - 1.);
+                //size_t nanSize = filterOnDevice(ipartMweight, nans, MoreThanMin);
+                //nans.setSize(nanSize);
+                //weights_t min_d = getMinOnDevice(nans);
+                //weights_t av_d = getSumOnDevice(nans) / nans.getSize();
                 //if(nanSize != 0) {
                 //    std::cerr << " found nans at: " << std::endl;
                 //    std::cerr << nanSize << ", " << ipartMweight.getSize() << std::endl;
@@ -1700,14 +1702,19 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
                 //    std::cerr << " ipart= " << ipart << " adaptive_fraction= " << baseMLO->adaptive_fraction << std::endl;
                 //    std::cerr << nanSize << ", " << ipartMweight.getSize() << std::endl;
                 //}
-
-				block_num = ceilf((float)(sp.nr_dir*sp.nr_psi)/(float)SUMW_BLOCK_SIZE);
+                
+                block_num = ceilf((float)(sp.nr_dir*sp.nr_psi)/(float)SUMW_BLOCK_SIZE);
 				dim3 block_dim(block_num,sp.iclass_max-sp.iclass_min+1);
-
+                dim3 thread_dim(SUMW_BLOCK_SIZE);
+                int nr_class_ = ceil((float)(sp.nr_dir*sp.nr_psi)/(float)SUMW_BLOCK_SIZE);
+                //int block_dim = nr_class_*(sp.iclass_max - sp.iclass_min + 1);
+                int p_dim = ceil(ipartMweight.getSize()/(float)(SUMW_BLOCK_SIZE));
+                //std::cout << p_dim << " " << ipartMweight.getSize()/(float)(SUMW_BLOCK_SIZE*sp.nr_trans) << std::endl;
+                //DEBUG_ME
 				if (failsafeMode) //Prevent zero prior products in fail-safe mode
 				{
 					cuda_kernel_exponentiate_weights_coarse<true,weights_t>
-					<<<block_dim,SUMW_BLOCK_SIZE,0>>>(
+					<<<block_dim,thread_dim,0>>>(
 							~pdf_orientation,
 							~pdf_offset,
 							~ipartMweight,
@@ -1715,11 +1722,12 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 							(XFLOAT)op.min_diff2[ipart],
 							sp.nr_dir*sp.nr_psi,
 							sp.nr_trans);
+                            //ipartMweight.getSize());
 				}
 				else
 				{
 					cuda_kernel_exponentiate_weights_coarse<false,weights_t>
-					<<<block_dim,SUMW_BLOCK_SIZE,0>>>(
+					<<<block_dim,thread_dim,0>>>(
 							~pdf_orientation,
 							~pdf_offset,
 							~ipartMweight,
@@ -1727,13 +1735,21 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 							(XFLOAT)op.min_diff2[ipart],
 							sp.nr_dir*sp.nr_psi,
 							sp.nr_trans);
+                            //ipartMweight.getSize());
 				}
 
-
+                //my_check_gprocessed<<<p_dim, SUMW_BLOCK_SIZE>>>(~processed, processed.getSize());
 
 				CTIC(cudaMLO->timer,"sort");
 				DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
-
+                //DEBUG_ME
+                //CudaGlobalPtr<weights_t> firstclass_weight(ipartMweight, 0, sp.nr_dir*sp.nr_psi*sp.nr_trans);
+                //CudaGlobalPtr<weights_t> secondclass_weight(ipartMweight, sp.nr_dir*sp.nr_psi*sp.nr_trans, sp.nr_dir*sp.nr_psi*sp.nr_trans);
+                //XFLOAT min_weight_first = getMinOnDevice(firstclass_weight);
+                //XFLOAT max_weight_first = getMaxOnDevice(firstclass_weight);
+                //XFLOAT min_weight_second = getMinOnDevice(secondclass_weight);
+                //XFLOAT max_weight_second = getMaxOnDevice(secondclass_weight);
+                //std::cout << op.min_diff2[ipart] << " " << min_weight_first << " " << max_weight_first << " " << min_weight_second<<" " << max_weight_second << std::endl;
 				long ipart_length = (sp.iclass_max-sp.iclass_min+1) * sp.nr_dir * sp.nr_psi * sp.nr_trans;
 
 				if (ipart_length > 1)
@@ -1742,6 +1758,7 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 					CudaGlobalPtr<weights_t> unsorted_ipart(weights,
 							ipart * op.Mweight.xdim + sp.nr_dir * sp.nr_psi * sp.nr_trans * sp.iclass_min,
 							ipart_length);
+                    
 
 					CudaGlobalPtr<weights_t> filtered(unsorted_ipart.getSize(), cudaMLO->devBundle->allocator);
 
@@ -1762,11 +1779,11 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 							std::cerr << "zeros: " << std::endl;
 							std::cerr << " fn_img= " << sp.current_img << std::endl;
 							std::cerr << " ipart= " << ipart << " adaptive_fraction= " << baseMLO->adaptive_fraction << std::endl;
-							std::cerr << " min_diff2= " << op.min_diff2[ipart] << ", " << min_d << std::endl;
-                            std::cerr << " avg_diff2= " << op.avg_diff2[ipart] << ", " << av_d << std::endl;
+							//std::cerr << " min_diff2= " << op.min_diff2[ipart] << ", " << min_d << std::endl;
+                            //std::cerr << " avg_diff2= " << op.avg_diff2[ipart] << ", " << av_d << std::endl;
                             std::cerr << "orientations: " << oris << ", " << pdf_orientation.getSize() << std::endl;
                             std::cerr << "offsets: " << offsets << ", " << pdf_offset.getSize() << std::endl;
-                            std::cerr << "nans: " << nanSize << ", " << unsorted_ipart.getSize() << std::endl;
+                            //std::cerr << "nans: " << nanSize << ", " << unsorted_ipart.getSize() << std::endl;
 							//pdf_orientation.dump_device_to_file("error_dump_pdf_orientation");
 							//pdf_offset.dump_device_to_file("error_dump_pdf_offset");
 							//unsorted_ipart.dump_device_to_file("error_dump_filtered");
@@ -1781,9 +1798,11 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 					CudaGlobalPtr<weights_t> sorted(filteredSize, cudaMLO->devBundle->allocator);
 					CudaGlobalPtr<weights_t> cumulative_sum(filteredSize, cudaMLO->devBundle->allocator);
 					sorted.device_alloc();
-					cumulative_sum.device_alloc();
+					//cumulative_sum.device_alloc();
 
 					sortOnDevice(filtered, sorted);
+                    filtered.free();
+                    cumulative_sum.device_alloc();
 					scanOnDevice(sorted, cumulative_sum);
 
 					CTOC(cudaMLO->timer,"sort");
@@ -1817,8 +1836,8 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 
 					if (my_nr_significant_coarse_samples == 0)
 					{
-						if (failsafeMode) //Only print error if not managed to recover through fail-safe mode
-						{
+						//if (failsafeMode) //Only print error if not managed to recover through fail-safe mode
+						//{
 							std::cerr << std::endl;
 							std::cerr << " fn_img= " << sp.current_img << std::endl;
 							std::cerr << " ipart= " << ipart << " adaptive_fraction= " << baseMLO->adaptive_fraction << std::endl;
@@ -1827,12 +1846,12 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 							std::cerr << " min_diff2= " << op.min_diff2[ipart] << std::endl;
 
 							unsorted_ipart.dump_device_to_file("error_dump_unsorted");
-							filtered.dump_device_to_file("error_dump_filtered");
+							//filtered.dump_device_to_file("error_dump_filtered");
 							sorted.dump_device_to_file("error_dump_sorted");
 							cumulative_sum.dump_device_to_file("error_dump_cumulative_sum");
 
 							std::cerr << "Written error_dump_unsorted, error_dump_filtered, error_dump_sorted, and error_dump_cumulative_sum." << std::endl;
-						}
+						//}
 
 						CRITICAL(ERRNOSIGNIFS); // "my_nr_significant_coarse_samples == 0"
 					}
@@ -1843,6 +1862,7 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 						my_nr_significant_coarse_samples = baseMLO->maximum_significants;
 						thresholdIdx = filteredSize - my_nr_significant_coarse_samples;
 					}
+                    cumulative_sum.free();
 
 					weights_t significant_weight = sorted.getDeviceAt(thresholdIdx);
 
@@ -1865,6 +1885,15 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 
 					DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
 					arrayOverThreshold<weights_t>(unsorted_ipart, Mcoarse_significant, significant_weight);
+                    //DEBUG_ME
+                    //MoreThanCubOpt<bool> boolMoreThanOpt(0);
+                    //CudaGlobalPtr<weights_t> firstclass_weight(ipartMweight, 0, sp.nr_dir*sp.nr_psi*sp.nr_trans);
+                    //CudaGlobalPtr<bool> my_tmp_filtered(firstclass_weight.getSize(), cudaMLO->devBundle->allocator);
+                    //my_tmp_filtered.device_alloc();
+				    //weights_t total_weight_first = getMaxOnDevice(firstclass_weight);
+                    //int total_weight_first = getSumOnDevice(firstclass_weight);
+                    //std::cout << significant_weight << " " << total_weight_first << std::endl;
+
 					Mcoarse_significant.cp_to_host();
 					DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
 				}
@@ -1909,7 +1938,11 @@ void convertAllSquaredDifferencesToWeights(unsigned exp_ipass,
 								~FPCMasks[ipart][exp_iclass].jobExtent,
 								FPCMasks[ipart][exp_iclass].jobNum);
 								LAUNCH_PRIVATE_ERROR(cudaGetLastError(),cudaMLO->errorStatus);
-					}
+                                //DEBUG_ME
+                                //XFLOAT min_weight_first = getMinOnDevice(thisClassPassWeights.weights);
+                                //XFLOAT max_weight_first = getMaxOnDevice(thisClassPassWeights.weights);
+                                //std::cout << min_weight_first << " " << max_weight_first << std::endl;
+                    }
 
 				}
 
@@ -2265,9 +2298,12 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
 		int iorient = 0;
 		partial_pos=0;
+        
+
 		for (int exp_iclass = sp.iclass_min; exp_iclass <= sp.iclass_max; exp_iclass++)
 		{
 			int fake_class = exp_iclass-sp.iclass_min; // if we only have the third class to do, the third class will be the "first" we do, i.e. the "fake" first.
+            
 			if ((baseMLO->mymodel.pdf_class[exp_iclass] == 0.) || (ProjectionData[ipart].class_entries[exp_iclass] == 0) )
 				continue;
 			int block_num = block_nums[nr_fake_classes*ipart + fake_class];
@@ -2286,6 +2322,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 				DIRECT_MULTIDIM_ELEM(thr_wsum_pdf_direction[exp_iclass], mydir) += p_weights[n];
 				thr_sumw_group[group_id]                 						+= p_weights[n];
 				thr_wsum_pdf_class[exp_iclass]           						+= p_weights[n];
+                
 				thr_wsum_sigma2_offset                   						+= p_thr_wsum_sigma2_offset[n];
 
 				if (baseMLO->mymodel.ref_dim == 2)
@@ -2294,8 +2331,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 					thr_wsum_prior_offsety_class[exp_iclass] += p_thr_wsum_prior_offsety_class[n];
 				}
 			}
+            
 			partial_pos+=block_num;
 		} // end loop iclass
+        //DEBUG_ME
+        //if(sp.iclass_min == 0) std::cout << ProjectionData[ipart].class_entries[0] << " " << thr_wsum_pdf_class[0] << " " << thr_wsum_pdf_class[1] << std::endl;
 		CTOC(cudaMLO->timer,"collect_data_2_post_kernel");
 	} // end loop ipart
 
@@ -3263,6 +3303,7 @@ void MlOptimiserCuda::doThreadExpectationSomeParticles(int thread_id)
 					Mweight.setSize(sp.nr_particles * weightsPerPart);
 					Mweight.setHstPtr(op.Mweight.data);
 					Mweight.device_alloc();
+                    if(Mweight.getSize() == 0) std::cout << "WRONG " << sp.nr_particles << " " << weightsPerPart << std::endl;
 					deviceInitValue<XFLOAT>(Mweight, -999.);
 					Mweight.streamSync();
 
@@ -3286,12 +3327,13 @@ void MlOptimiserCuda::doThreadExpectationSomeParticles(int thread_id)
 //						catch (RelionError XE)
 //#endif
 //						{
-							//if (failsafe_attempts > 40)
-						    //      CRITICAL(ERRNUMFAILSAFE);
+							if (failsafe_attempts > 40)
+						          CRITICAL(ERRNUMFAILSAFE);
 							//Rerun in fail-safe mode
 							//convertAllSquaredDifferencesToWeights<XFLOAT>(ipass, op, sp, baseMLO, this, CoarsePassWeights, FinePassClassMasks, Mweight, true);
 							//std::cerr << std::endl << "WARNING: Exception (" << XE.msg << ") handled by switching to fail-safe mode." << std::endl;
 							failsafe_attempts ++;
+                            //CRITICAL(ERRNUMFAILSAFE);
                             std::cerr << "Count: failed on " << failsafe_attempts << "particles" << std::endl;
                             failed = true;
                             break;//break weight pass
@@ -3318,6 +3360,7 @@ void MlOptimiserCuda::doThreadExpectationSomeParticles(int thread_id)
 							FineProjectionData[iframe].class_entries[exp_iclass] = 0;
 
 							CTIC(timer,"generateProjectionSetup");
+                            
 							FineProjectionData[iframe].orientationNumAllClasses += generateProjectionSetupFine(
 									op,
 									sp,
@@ -3325,7 +3368,8 @@ void MlOptimiserCuda::doThreadExpectationSomeParticles(int thread_id)
 									exp_iclass,
 									FineProjectionData[iframe]);
 							CTOC(timer,"generateProjectionSetup");
-
+                            //DEBUG_ME
+                            //if(exp_iclass == 0) std::cout << FineProjectionData[iframe].class_entries[exp_iclass] << std::endl;
 						}
 						//set a maximum possible size for all weights (to be reduced by significance-checks)
 						FinePassWeights[iframe].setDataSize(FineProjectionData[iframe].orientationNumAllClasses*sp.nr_trans*sp.nr_oversampled_trans);
