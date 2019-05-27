@@ -21,6 +21,7 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
     devBundle->setStream();
     std::cout <<" Device: " << devBundle->device_id <<", " << data_dim;
     std::cout << " " << vol_out.xdim << ", " << vol_out.ydim << ", " << vol_out.zdim << std::endl;
+    std::cout << Fweight.xdim << ", " << Fweight.ydim << ", " << Fweight.zdim << std::endl;
     int ZZ = vol_out.zdim >> 1;
     int YY = vol_out.ydim >> 1;
     int XX = vol_out.xdim >> 1;

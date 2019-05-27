@@ -1912,7 +1912,8 @@ void MlOptimiserMpi::maximization()
 	// First reconstruct all classes in parallel
     void* devBundle = NULL;
     if(do_gpu && cudaDevices.size()){
-        int dev = node->rank % cudaDevices.size();
+        //int dev = node->rank % cudaDevices.size();
+        int dev = 0;
         std::cout << node->rank << " assigned to device " << cudaDevices[dev] << " and " << do_parallel_disc_io << " " << do_sequential_halves_recons << std::endl;
         MlDeviceBundle * b = new MlDeviceBundle(this);
         b->setDevice(cudaDevices[dev]);

@@ -871,7 +871,7 @@ __global__ void cuda_kernel_substract(XFLOAT *A,
         hY = Y << 1;
         hX = X << 1;
         int c_pixel = kp*hY*hX + ip*hX + jp;
-        A[c_pixel] -= (B[pixel] - l*C[c_pixel]);
+        A[c_pixel] -= (B[c_pixel] - l*C[c_pixel]);
     }
 }
 
@@ -1276,12 +1276,15 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
         }
         gtmp += tmp/(norm + epslog)*beta;
         //got the norm of kl-1, il, jl
+        //kl - 1 >= -hZ
         if( kl > -hZ ){
             int kpm = kl - 1;
+            //kl - 1 < 0
             if(kl < 1) kpm += Z;
             XFLOAT nval = img[kpm*Y*X + i*X + j];
             tmp = val - nval;
             norm = tmp*tmp;
+            //il + 1 < hY
             if( il < hY - 1){
                 int loc = kpm*Y*X + ipp*X + j;
                 XFLOAT img_loc = img[loc];
