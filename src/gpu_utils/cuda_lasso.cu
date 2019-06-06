@@ -21,7 +21,7 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
     devBundle->setStream();
     std::cout <<" Device: " << devBundle->device_id <<", " << data_dim;
     std::cout << " " << vol_out.xdim << ", " << vol_out.ydim << ", " << vol_out.zdim << std::endl;
-    std::cout << Fweight.xdim << ", " << Fweight.ydim << ", " << Fweight.zdim << std::endl;
+    std::cout << "do_nag: " << do_nag << std::endl;
     int ZZ = vol_out.zdim >> 1;
     int YY = vol_out.ydim >> 1;
     int XX = vol_out.xdim >> 1;
@@ -50,15 +50,19 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
     yob.alloc();
     XFLOAT lambda = implicit_weight*normalise;
     std::cout << "weight " << weight.getSize() << ", " << Fconv.getSize()<< std::endl;
+    RFLOAT fconv_norm = 0.;
+
     if(do_nag) {
         for(int i = 0; i < Fconv.nzyxdim; i++){
             //img[i] = 0.f;
             //transformer.fouriers[i].x = Fconv.data[i].real;
             //transformer.fouriers[i].y = Fconv.data[i].imag;
             yob[i] = Fconv.data[i];
+            fconv_norm += Fconv.data[i]*Fconv.data[i];
             yob[i] += lambda*((XFLOAT)vol_out.data[i]);
             //std::cout << yob[i] << std::endl;
         }
+        fconv_norm = sqrt(fconv_norm/Fconv.nzyxdim);
         //for(int k = 0; k < ZZ; k++)
         //    for(int i = 0; i < YY; i++)
         //        for(int j = 0; j < XX; j++){
@@ -81,6 +85,7 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
                 img[k*Y*X + i*X + j] = 0.;
             }
         }
+        //img.init();
     } else {
         for(int i = 0; i < Fconv.nzyxdim; i++){
             //img[i] = 0.f;
@@ -138,7 +143,7 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
     img.streamSync();
     weight.cp_to_device();
     //std::cout << ~weight << " " << ~grads << " " << ~img << " " << ~yob << std::endl;
-    XFLOAT tv_eps = 0.2;
+    XFLOAT tv_eps = 0.0002;
     int FBsize = (int) ceilf((float)transformer.fouriers.getSize()/(float)BLOCK_SIZE);
     int imgBsize = (int) ceilf((float)img_size_h/(float)BLOCK_SIZE);
     int imgBFsize = (int) ceilf((float)img.getSize()/(float)BLOCK_SIZE);
@@ -160,8 +165,12 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
     tv_alpha *= std::sqrt(normalise);
     tv_beta *= std::sqrt(normalise);
     XFLOAT yob_norm = getSquareSumOnBlock(img);
+    //XFLOAT yob_norm = 0;
+    //for(int i = 0; i < img_size; i++){
+    //    yob_norm += img[i]*img[i];
+    //}
     yob_norm /= img_size;
-    std::cout << "tv_alpha: " << tv_alpha << ", tv_beta: " << tv_beta << " img_norm: " << std::sqrt(yob_norm) <<" imgBFsize " << imgBFsize << " FBsize " << FBsize << std::endl;
+    std::cout << "tv_alpha: " << tv_alpha << ", tv_beta: " << tv_beta << " fconv_norm: " << fconv_norm << " img_norm: " << std::sqrt(yob_norm) <<" img_size " << img_size << " FBsize " << FBsize << std::endl;
     for(int m_c = 0; m_c <= tv_iters; m_c++){
         //forward transform img
         transformer.forward();
@@ -250,6 +259,7 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
                 XX,
                 YY,
                 ZZ,
+                //grads.getSize());
                 img_size_h);
         //update momentum and soft thresholding
         //cuda_kernel_soft_threshold<<<imgBsize, BLOCK_SIZE, 0, grads.getStream()>>>(
@@ -264,12 +274,12 @@ void cuda_lasso(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_
         //        tv_alpha,
         //        eps,
         //        momentum.getSize());
-        if(m_c % 20 == 0){
+        if(m_c % 40 == 0){
             std::cout << m_c << " ";
             RFLOAT img_norm = getSquareSumOnBlock(img);
             RFLOAT resi_norm = getSquareSumOnBlock(grads);
-            img_norm = sqrt(img_norm/img_size);
-            resi_norm = sqrt(resi_norm/img_size);
+            img_norm = sqrt(img_norm/img_size_h);
+            resi_norm = sqrt(resi_norm/img_size_h);
             std::cout <<  resi_norm << " " << img_norm << " " << resi_norm/img_norm << std::endl;
         }
         l_r *= exp(-0.0025);

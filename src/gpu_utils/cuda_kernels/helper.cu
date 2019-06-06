@@ -1001,7 +1001,7 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
         XFLOAT th = l_r*alpha/(eps+img[pixel]);
         XFLOAT tmp = img[pixel];
         img[pixel] -=  l_r*grads[pixel];
-        grads[pixel] = tmp;
+        //grads[pixel] = tmp;
         if(img[pixel] < th && img[pixel] > -th){
             img[pixel] = 0.;
         } else {
@@ -1011,7 +1011,7 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                 img[pixel] += th;
             }
         }
-        grads[pixel] -= img[pixel];
+        //grads[pixel] -= img[pixel];
     }
 }
 

@@ -1126,7 +1126,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     RFLOAT mu = 0.9;
     RFLOAT resi = 0.;
     RFLOAT resi_v = 0.;
-    RFLOAT eps = 0.1;
+    RFLOAT eps = 0.0025;
 
     if(!do_nag && devBundle){
         cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
@@ -1707,7 +1707,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //    DIRECT_MULTIDIM_ELEM(Fconv, n) /= normalise;
 		//}
         RFLOAT avg_Fconv = 0.;
-        RFLOAT counter = 0.;
+        //RFLOAT counter = 0.;
         //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
  		//{
 		//	int r2 = kp * kp + ip * ip + jp * jp;
@@ -1769,7 +1769,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //omp_set_num_threads(nr_threads);
         RFLOAT resi = 0.;
         RFLOAT resi_v = 0.;
-        RFLOAT eps = 0.1;
+        RFLOAT eps = 0.03;
 
         if(devBundle){
             cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);

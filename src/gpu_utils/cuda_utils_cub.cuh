@@ -96,9 +96,11 @@ if (ptr.getAllocator() == NULL && CustomAlloc)
 	CudaUnifedPtr<T>  val(ptr.getStream(), ptr.gpu_id, 1);
 	val.alloc();
 
+    val[0] = 0;
 	int sumSize = (int) ceilf(((XFLOAT) ptr.getSize())/((XFLOAT)(512*4)));
     BlockSumKernel<T, 512, 4, cub::BLOCK_LOAD_VECTORIZE, cub::BLOCK_REDUCE_RAKING><<<sumSize, 512, 0, ptr.getStream()>>>(~ptr, ~val, ptr.getSize());
 	ptr.streamSync();
+    //cudaDeviceSynchronize();
 
 	return val[0];
 }

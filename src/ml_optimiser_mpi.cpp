@@ -1911,7 +1911,7 @@ void MlOptimiserMpi::maximization()
 
 	// First reconstruct all classes in parallel
     void* devBundle = NULL;
-    if(do_gpu && cudaDevices.size()){
+    if(do_gpu && cudaDevices.size() && !node->isMaster()){
         //int dev = node->rank % cudaDevices.size();
         int dev = 0;
         std::cout << node->rank << " assigned to device " << cudaDevices[dev] << " and " << do_parallel_disc_io << " " << do_sequential_halves_recons << std::endl;
@@ -3067,6 +3067,8 @@ void MlOptimiserMpi::iterate()
                 mymodel.tv_weight *= exp(0.025);
             }
             acceptance_ratio *= 1.035;
+            adaptive_fraction *= 1.01;
+            adaptive_fraction = std::min(adaptive_fraction, 0.999);
         }
 
         if(do_nag && iter != 1) {

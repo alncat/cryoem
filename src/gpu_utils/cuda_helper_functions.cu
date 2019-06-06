@@ -580,6 +580,7 @@ void runBackProjectKernel(
 					imgX*imgY*imgZ,
 					BP.mdlX,
 					BP.mdlY,
+                    BP.mdlZ,
 					BP.mdlInitY,
 					BP.mdlInitZ);
 			else
@@ -608,6 +609,7 @@ void runBackProjectKernel(
 					imgX*imgY*imgZ,
 					BP.mdlX,
 					BP.mdlY,
+                    BP.mdlZ,
 					BP.mdlInitY,
 					BP.mdlInitZ);
 		}
