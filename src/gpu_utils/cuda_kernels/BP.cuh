@@ -322,11 +322,12 @@ __global__ void cuda_kernel_backproject3D(
                         int ys = __float2int_rn(yp + i);
                         int zs = __float2int_rn(zp + k);
                         XFLOAT d = (xs - xp)*(xs - xp) + (ys - yp)*(ys - yp) + (zs - zp)*(zs - zp);
+                        XFLOAT n_imag = imag;
                         if(xs < 0) {
                             xs = -xs;
                             ys = -ys;
                             zs = -zs;
-                            imag = -imag;
+                            n_imag = -imag;
                             //d = (xs + xp)*(xs + xp) + (ys + yp)*(ys + yp) + (zs + zp)*(zs + zp);
                         }
                         int xc = xs;
@@ -334,9 +335,9 @@ __global__ void cuda_kernel_backproject3D(
                         int zc = zs - mdl_initz;
                         if(xc < mdl_x && yc < mdl_y && zc < mdl_z &&
                             xc >=0 && yc >= 0 && zc >= 0)  {
-                            d = expf(-d/2.);
+                            d = expf(-d/2);
                             cuda_atomic_add(&g_model_real  [zc * mdl_x * mdl_y + yc * mdl_x + xc], d * real);
-                            cuda_atomic_add(&g_model_imag  [zc * mdl_x * mdl_y + yc * mdl_x + xc], d * imag);
+                            cuda_atomic_add(&g_model_imag  [zc * mdl_x * mdl_y + yc * mdl_x + xc], d * n_imag);
                             cuda_atomic_add(&g_model_weight[zc * mdl_x * mdl_y + yc * mdl_x + xc], d * Fweight);
                         }
                     }
@@ -359,65 +360,65 @@ __global__ void cuda_kernel_backproject3D(
 			//XFLOAT mfy = (XFLOAT)1.0 - fy;
 			//XFLOAT mfz = (XFLOAT)1.0 - fz;
 
-			////XFLOAT dd000 = mfz * mfy * mfx;
-            //XFLOAT dd000 = fx*fx + fy*fy + fz*fz;
-            //dd000 = expf(-dd000/2.);
+			//XFLOAT dd000 = mfz * mfy * mfx;
+            ////XFLOAT dd000 = fx*fx + fy*fy + fz*fz;
+            ////dd000 = expf(-dd000/2.);
 
 			//cuda_atomic_add(&g_model_real  [z0 * mdl_x * mdl_y + y0 * mdl_x + x0], dd000 * real);
 			//cuda_atomic_add(&g_model_imag  [z0 * mdl_x * mdl_y + y0 * mdl_x + x0], dd000 * imag);
 			//cuda_atomic_add(&g_model_weight[z0 * mdl_x * mdl_y + y0 * mdl_x + x0], dd000 * Fweight);
 
-			////XFLOAT dd001 = mfz * mfy *  fx;
-            //XFLOAT dd001 = fz*fz + fy*fy + mfx*mfx;
-            //dd001 = expf(-dd001/2.);
+			//XFLOAT dd001 = mfz * mfy *  fx;
+            ////XFLOAT dd001 = fz*fz + fy*fy + mfx*mfx;
+            ////dd001 = expf(-dd001/2.);
 
 			//cuda_atomic_add(&g_model_real  [z0 * mdl_x * mdl_y + y0 * mdl_x + x1], dd001 * real);
 			//cuda_atomic_add(&g_model_imag  [z0 * mdl_x * mdl_y + y0 * mdl_x + x1], dd001 * imag);
 			//cuda_atomic_add(&g_model_weight[z0 * mdl_x * mdl_y + y0 * mdl_x + x1], dd001 * Fweight);
 
-			////XFLOAT dd010 = mfz *  fy * mfx;
-            //XFLOAT dd010 = fz*fz + mfy*mfy + fx*fx;
-            //dd010 = expf(-dd010/2.);
+			//XFLOAT dd010 = mfz *  fy * mfx;
+            ////XFLOAT dd010 = fz*fz + mfy*mfy + fx*fx;
+            ////dd010 = expf(-dd010/2.);
 
 			//cuda_atomic_add(&g_model_real  [z0 * mdl_x * mdl_y + y1 * mdl_x + x0], dd010 * real);
 			//cuda_atomic_add(&g_model_imag  [z0 * mdl_x * mdl_y + y1 * mdl_x + x0], dd010 * imag);
 			//cuda_atomic_add(&g_model_weight[z0 * mdl_x * mdl_y + y1 * mdl_x + x0], dd010 * Fweight);
 
-			////XFLOAT dd011 = mfz *  fy *  fx;
-            //XFLOAT dd011 = fz*fz + mfy*mfy + mfx*mfx;
-            //dd011 = expf(-dd011/2.);
+			//XFLOAT dd011 = mfz *  fy *  fx;
+            ////XFLOAT dd011 = fz*fz + mfy*mfy + mfx*mfx;
+            ////dd011 = expf(-dd011/2.);
 
 			//cuda_atomic_add(&g_model_real  [z0 * mdl_x * mdl_y + y1 * mdl_x + x1], dd011 * real);
 			//cuda_atomic_add(&g_model_imag  [z0 * mdl_x * mdl_y + y1 * mdl_x + x1], dd011 * imag);
 			//cuda_atomic_add(&g_model_weight[z0 * mdl_x * mdl_y + y1 * mdl_x + x1], dd011 * Fweight);
 
-			////XFLOAT dd100 =  fz * mfy * mfx;
-            //XFLOAT dd100 = mfz*mfz + fy*fy + fx*fx;
-            //dd100 = expf(-dd100/2.);
+			//XFLOAT dd100 =  fz * mfy * mfx;
+            ////XFLOAT dd100 = mfz*mfz + fy*fy + fx*fx;
+            ////dd100 = expf(-dd100/2.);
 
 			//cuda_atomic_add(&g_model_real  [z1 * mdl_x * mdl_y + y0 * mdl_x + x0], dd100 * real);
 			//cuda_atomic_add(&g_model_imag  [z1 * mdl_x * mdl_y + y0 * mdl_x + x0], dd100 * imag);
 			//cuda_atomic_add(&g_model_weight[z1 * mdl_x * mdl_y + y0 * mdl_x + x0], dd100 * Fweight);
 
-			////XFLOAT dd101 =  fz * mfy *  fx;
-            //XFLOAT dd101 = mfz*mfz + fy*fy + mfx*mfx;
-            //dd101 = expf(-dd101/2.);
+			//XFLOAT dd101 =  fz * mfy *  fx;
+            ////XFLOAT dd101 = mfz*mfz + fy*fy + mfx*mfx;
+            ////dd101 = expf(-dd101/2.);
 
 			//cuda_atomic_add(&g_model_real  [z1 * mdl_x * mdl_y + y0 * mdl_x + x1], dd101 * real);
 			//cuda_atomic_add(&g_model_imag  [z1 * mdl_x * mdl_y + y0 * mdl_x + x1], dd101 * imag);
 			//cuda_atomic_add(&g_model_weight[z1 * mdl_x * mdl_y + y0 * mdl_x + x1], dd101 * Fweight);
 
-			////XFLOAT dd110 =  fz *  fy * mfx;
-            //XFLOAT dd110 = mfz*mfz + mfy*mfy + fx*fx;
-            //dd110 = expf(-dd110/2.);
+			//XFLOAT dd110 =  fz *  fy * mfx;
+            ////XFLOAT dd110 = mfz*mfz + mfy*mfy + fx*fx;
+            ////dd110 = expf(-dd110/2.);
 
 			//cuda_atomic_add(&g_model_real  [z1 * mdl_x * mdl_y + y1 * mdl_x + x0], dd110 * real);
 			//cuda_atomic_add(&g_model_imag  [z1 * mdl_x * mdl_y + y1 * mdl_x + x0], dd110 * imag);
 			//cuda_atomic_add(&g_model_weight[z1 * mdl_x * mdl_y + y1 * mdl_x + x0], dd110 * Fweight);
 
-			////XFLOAT dd111 =  fz *  fy *  fx;
-            //XFLOAT dd111 = mfz*mfz + mfy*mfy + mfx*mfx;
-            //dd111 = expf(-dd111/2.);
+			//XFLOAT dd111 =  fz *  fy *  fx;
+            ////XFLOAT dd111 = mfz*mfz + mfy*mfy + mfx*mfx;
+            ////dd111 = expf(-dd111/2.);
 
 			//cuda_atomic_add(&g_model_real  [z1 * mdl_x * mdl_y + y1 * mdl_x + x1], dd111 * real);
 			//cuda_atomic_add(&g_model_imag  [z1 * mdl_x * mdl_y + y1 * mdl_x + x1], dd111 * imag);

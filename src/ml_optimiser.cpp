@@ -3746,10 +3746,14 @@ void MlOptimiser::maximizationOtherParameters()
 		// Use sampling.NrDirections() to include all directions (also those with zero prior probability for any given image)
 		if (!(do_skip_align || do_skip_rotate))
 		{
+            RFLOAT dirichlet_prior = 0.001;
 			for (int idir = 0; idir < sampling.NrDirections(); idir++)
 			{
-				mymodel.pdf_direction[iclass](idir) *= mu;
-				mymodel.pdf_direction[iclass](idir) += (1. - mu) * wsum_model.pdf_direction[iclass](idir) / sum_weight;
+                //DONE: consider applying dirichlet prior on pdf_direction
+                mymodel.pdf_direction[iclass](idir) *= mu;
+                mymodel.pdf_direction[iclass](idir) += (1. - mu) * (wsum_model.pdf_direction[iclass](idir) + sum_weight/sampling.NrDirections()*dirichlet_prior) / (sum_weight + sum_weight*dirichlet_prior);
+				//mymodel.pdf_direction[iclass](idir) *= mu;
+				//mymodel.pdf_direction[iclass](idir) += (1. - mu) * wsum_model.pdf_direction[iclass](idir) / sum_weight;
 			}
 		}
 	}

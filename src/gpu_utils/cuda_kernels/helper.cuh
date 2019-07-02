@@ -474,6 +474,16 @@ __global__ void cuda_kernel_substract(XFLOAT *A,
                                      int X,
                                      int image_size);
 
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                     XFLOAT *B,
+                                     XFLOAT *C,
+                                     XFLOAT *vol_out,
+                                     XFLOAT l,
+                                     XFLOAT* sum,
+                                     int Z,
+                                     int Y,
+                                     int X,
+                                     int image_size);
 
 template<typename T>
 __global__ void cuda_kernel_reset_nan(
@@ -517,6 +527,7 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
 __global__ void cuda_kernel_complex_multi( XFLOAT *A,
                                    XFLOAT *B,
                                    XFLOAT S,
+                                   XFLOAT w,
                                    int Z,
                                    int Y,
                                    int X,
@@ -564,6 +575,12 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT l_r,
                                            XFLOAT alpha,
                                            XFLOAT eps,
+                                           int X,
+                                           int Y,
+                                           int Z,
+                                           int XX,
+                                           int YY,
+                                           int ZZ,
                                            int image_size);
 
 __global__ void cuda_kernel_soft_threshold(XFLOAT *img,

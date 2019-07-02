@@ -1769,7 +1769,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //omp_set_num_threads(nr_threads);
         RFLOAT resi = 0.;
         RFLOAT resi_v = 0.;
-        RFLOAT eps = 0.03;
+        RFLOAT eps = 0.04;
 
         if(devBundle){
             cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);

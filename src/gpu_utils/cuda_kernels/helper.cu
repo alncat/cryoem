@@ -787,6 +787,7 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
 __global__ void cuda_kernel_complex_multi( XFLOAT *A,
                                    XFLOAT *B,
                                    XFLOAT S,
+                                   XFLOAT w,
                                    int Z,
                                    int Y,
                                    int X,
@@ -806,11 +807,13 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
             if(kp < 0) kp += ZZ;
             if(ip < 0) ip += YY;
             int n_pixel = kp*(YY*XX) + ip*XX + jp;
-            A[pixel*2] *= B[n_pixel]*S;
-            A[pixel*2+1] *= B[n_pixel]*S;
+            A[pixel*2] *= (B[n_pixel]*S + w);
+            A[pixel*2+1] *= (B[n_pixel]*S + w);
         } else {
-            A[pixel*2] = 0.;
-            A[pixel*2+1] = 0.;
+            //A[pixel*2] = 0.;
+            //A[pixel*2+1] = 0.;
+            A[pixel*2] *=w;
+            A[pixel*2+1] *=w;
         }
     }
 }
@@ -875,6 +878,37 @@ __global__ void cuda_kernel_substract(XFLOAT *A,
     }
 }
 
+__global__ void cuda_kernel_substract(XFLOAT *A,
+                                     XFLOAT *B,
+                                     XFLOAT *C,
+                                     XFLOAT *vol_out,
+                                     XFLOAT l,
+                                     XFLOAT* sum,
+                                     int Z,
+                                     int Y,
+                                     int X,
+                                     int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size) {
+        int kp = pixel / (Y*X);
+        int ip = (pixel - kp * (Y*X))/X;
+        int jp = pixel - kp * (Y*X) - ip * X;
+        int hZ = Z >> 1;
+        int hY = Y >> 1;
+        int hX = X >> 1;
+        if(kp >= hZ) kp += Z;
+        if(ip >= hY) ip += Y;
+        if(jp >= hX) jp += X;
+        hY = Y << 1;
+        hX = X << 1;
+        int c_pixel = kp*hY*hX + ip*hX + jp;
+        XFLOAT tmp = B[c_pixel] - vol_out[c_pixel];
+        tmp -= A[c_pixel];
+        A[c_pixel] -= (B[c_pixel] - l*C[c_pixel]);
+        cuda_atomic_add(&sum[0], tmp*tmp);
+    }
+}
 __global__ void cuda_kernel_update_momentum(XFLOAT *grads,
                                             XFLOAT *momentum,
                                             XFLOAT mu,
@@ -1022,26 +1056,56 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT l_r,
                                            XFLOAT alpha,
                                            XFLOAT eps,
+                                           int X,
+                                           int Y,
+                                           int Z,
+                                           int XX,
+                                           int YY,
+                                           int ZZ,
                                            int image_size)
 {
     int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
     if(pixel < image_size){
+        int k = pixel/(YY*XX);
+        int i = (pixel - k*YY*XX)/XX;
+        int j = pixel - k*YY*XX - i*XX;
+        int hZ = ZZ >> 1;
+        int hY = YY >> 1;
+        int hX = XX >> 1;
+        int kl = k;
+        int il = i;
+        int jl = j;
+        if(kl >= hZ){
+            kl -= ZZ;
+            k = kl + Z;
+        }
+        if(il >= hY){
+            il -= YY;
+            i = il + Y;
+        }
+        if(jl >= hX){
+            jl -= XX;
+            j = jl + X;
+        }
+        pixel = k*Y*X + i*X + j;
         XFLOAT th = l_r*alpha/(eps+img[pixel]);
-        XFLOAT tmp = momentum[pixel];
-        XFLOAT n_momentum = mu*tmp - l_r*grads[pixel];
-        momentum[pixel] = n_momentum;
-        grads[pixel] = img[pixel];
-        img[pixel] += n_momentum + mu*(n_momentum - tmp);
-        if(img[pixel] < th && img[pixel] > -th){
+        //store image first
+        XFLOAT tmp = img[pixel];
+        //threshold result goest to image
+        momentum[pixel] -=  l_r*grads[pixel];
+        //grads[pixel] = tmp;
+        if(momentum[pixel] < th && momentum[pixel] > -th){
             img[pixel] = 0.;
         } else {
-            if(img[pixel] >= th){
-                img[pixel] -= th;
+            if(momentum[pixel] >= th){
+                img[pixel] = momentum[pixel] - th;
             } else {
-                img[pixel] += th;
+                img[pixel] = momentum[pixel] + th;
             }
         }
-        grads[pixel] -= img[pixel];
+        //mix new image with old image to get new momentum
+        grads[pixel] = img[pixel] - tmp;
+        momentum[pixel] = img[pixel] + mu*grads[pixel];
     }
 }
 

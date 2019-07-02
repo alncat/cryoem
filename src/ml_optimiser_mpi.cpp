@@ -3065,6 +3065,7 @@ void MlOptimiserMpi::iterate()
                 mymodel.tv_alpha *= exp(-0.04);
                 mymodel.tv_beta *= exp(-0.04);
                 mymodel.tv_weight *= exp(0.025);
+                //mymodel.tv_iters = mymodel.tv_iters*exp(0.035);
             }
             acceptance_ratio *= 1.035;
             adaptive_fraction *= 1.01;
