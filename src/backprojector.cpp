@@ -622,6 +622,36 @@ void BackProjector::getLowResDataAndWeight(MultidimArray<Complex > &lowres_data,
 	}
 }
 
+void BackProjector::getTestDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight)
+{
+
+	// Initialize lowres_data and low_res_weight arrays
+	lowres_data.clear();
+	lowres_weight.clear();
+
+	if (ref_dim == 2)
+	{
+		lowres_data.resize(data);
+		lowres_weight.resize(weight);
+	}
+	else
+	{
+		lowres_data.resize(data);
+		lowres_weight.resize(weight);
+	}
+	lowres_data.setXmippOrigin();
+	lowres_data.xinit=0;
+	lowres_weight.setXmippOrigin();
+	lowres_weight.xinit=0;
+
+	// fill lowres arrays with relevant values
+	FOR_ALL_ELEMENTS_IN_ARRAY3D(lowres_data)
+	{
+		A3D_ELEM(lowres_data, k, i, j) = A3D_ELEM(data, k , i, j);
+		A3D_ELEM(lowres_weight, k, i, j) = A3D_ELEM(weight, k , i, j);
+	}
+}
+
 void BackProjector::setLowResDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight,
 		int lowres_r_max)
 {
@@ -658,6 +688,37 @@ void BackProjector::setLowResDataAndWeight(MultidimArray<Complex > &lowres_data,
 	}
 
 }
+
+void BackProjector::setTestDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight)
+{
+
+	// Initialize lowres_data and low_res_weight arrays
+	test_data.clear();
+	test_weight.clear();
+
+	if (ref_dim == 2)
+	{
+		test_data.resize(data);
+		test_weight.resize(weight);
+	}
+	else
+	{
+		test_data.resize(data);
+		test_weight.resize(weight);
+	}
+	test_data.setXmippOrigin();
+	test_data.xinit=0;
+	test_weight.setXmippOrigin();
+	test_weight.xinit=0;
+
+	// fill lowres arrays with relevant values
+	FOR_ALL_ELEMENTS_IN_ARRAY3D(test_data)
+	{
+		A3D_ELEM(test_data, k, i, j) = A3D_ELEM(lowres_data, k , i, j);
+		A3D_ELEM(test_weight, k, i, j) = A3D_ELEM(lowres_weight, k , i, j);
+	}
+}
+
 
 void BackProjector::getDownsampledAverage(MultidimArray<Complex > &avg, MultidimArray<RFLOAT>& weight, MultidimArray<Complex>& data)
 {
@@ -1129,7 +1190,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     RFLOAT eps = 0.0025;
 
     if(!do_nag && devBundle){
-        cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
+        cuda_lasso(0, tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, data, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
     }
     else{
         //cerate an array for storing grads and momentum
@@ -1448,6 +1509,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     RCTIC(ReconTimer,ReconS_1);
     FourierTransformer transformer;
 	MultidimArray<RFLOAT> Fweight;
+    MultidimArray<RFLOAT> Ftest_weight;
 	// Fnewweight can become too large for a float: always keep this one in double-precision
 	MultidimArray<double> Fnewweight;
 	MultidimArray<Complex>& Fconv = transformer.getFourierReference();
@@ -1505,6 +1567,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     //Fweight.reshape(Fconv);
     //Fweight.reshape(pad_size, pad_size, pad_size/2+1);
     Fweight.reshape(weight.zdim, weight.ydim, weight.xdim);
+    Ftest_weight.reshape(weight.zdim, weight.ydim, weight.xdim);
     //std::cout << "Fweight ";
     //Fweight.printShape();
     if (!skip_gridding && !do_tv)
@@ -1512,6 +1575,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 
 	// Go from projector-centered to FFTW-uncentered
 	decenter(weight, Fweight, max_r2);
+    //decenter test_weight
+    decenter(test_weight, Ftest_weight, max_r2);
     //std::cout << "decenter!!!!!" << std::endl;
 	// Take oversampling into account
 	RFLOAT oversampling_correction = (ref_dim == 3) ? (padding_factor * padding_factor * padding_factor) : (padding_factor * padding_factor);
@@ -1551,6 +1616,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 	}
 
     RFLOAT ssnr = 0.;
+    int fsc143 = 0;
 	if (update_tau2_with_fsc)
 	{
 		tau2.reshape(ori_size/2 + 1);
@@ -1580,7 +1646,10 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 			DIRECT_A1D_ELEM(tau2, i) = fsc_based_tau;
 			// data_vs_prior is merely for reporting: it is not used for anything in the reconstruction
 			DIRECT_A1D_ELEM(data_vs_prior, i) = myssnr;
-
+            //update fsc143
+            if(myfsc > 0.143) {
+                fsc143 = i;
+            }
 		}
         ssnr /= tau2.getSize();
 	}
@@ -1678,7 +1747,11 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //cerate an array for storing F^-1(data)
         MultidimArray<RFLOAT> Mout;
         //first put data into Fconv, which is the fourier transforms of transformer
+        //test conv will store the test data
+        MultidimArray<Complex> Ftest_conv(Fconv, true);
         decenter(data, Fconv, max_r2);
+        decenter(test_data, Ftest_conv, max_r2);
+
         //std::cout << "Fconv";
         //Fconv.printShape();
         //std::cout << "max_r2 " << max_r2 << std::endl;
@@ -1749,6 +1822,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         Mout.setXmippOrigin();
         //divide by norm factor
         Mout /= normfft;
+        //multiply test weight by normfft
+        Ftest_weight *= normfft;
         //RFLOAT resi_M = 0.;
         //FOR_ALL_ELEMENTS_IN_ARRAY3D(Mout)
         //{
@@ -1772,211 +1847,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         RFLOAT eps = 0.04;
 
         if(devBundle){
-            cuda_lasso(tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);
+            cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);
         }
-        else{
-            //Mout.setXmippOrigin();
-            //transformer.setReal(Mout);
-            //transformer.inverseFourierTransform();
-            //Mout.setXmippOrigin();
-            //std::cout << "Mout";
-            //Mout.printShape();
-            //divide by norm factor
-            //Mout /= normfft;
-
-        //cerate an array for storing grads and momentum
-            MultidimArray<RFLOAT> grads;
-            MultidimArray<RFLOAT> momentum;
-            grads.reshape(Mout);
-            momentum.reshape(Mout);
-            vol_out.setXmippOrigin();
-            momentum.setXmippOrigin();
-            grads.setXmippOrigin();
-            MultidimArray<Complex> Faux;
-#pragma omp parallel
-        for(int m_c = 0; m_c < tv_iters; m_c++)
-        {
-            //get grads
-            //real_grads.initZeros();
-            //RFLOAT mu = (m_c - 2.)/(m_c + 1.);
-            //FOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
-            //{
-            //    A3D_ELEM(vol_out_p, k, i, j) = A3D_ELEM(vol_out, k, i, j) + mu*(A3D_ELEM(vol_out, k, i, j) - A3D_ELEM(vol_out_p, k, i, j));
-            //}
-
-#pragma omp single
-            {
-                l_r *= exp(-0.02);
-                vol_out.setXmippOrigin();
-                transformer.FourierTransform(vol_out, Faux, false);
-            }
-
-#pragma omp for
-            FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Faux)
-            {
-                if (DIRECT_MULTIDIM_ELEM(Fweight, n) > 0.) 
-                {
-                    DIRECT_MULTIDIM_ELEM(Faux, n) *= DIRECT_MULTIDIM_ELEM(Fweight, n);
-                }
-            }
-#pragma omp single 
-            {   
-                resi = 0.;
-                resi_v = 0.;
-                transformer.inverseFourierTransform(Faux, grads);
-                transformer.fReal = NULL; // Make sure to re-calculate fftw plan
-                grads.setXmippOrigin();
-            }
-
-            //getRealSpaceGrads(transformer, vol_out, grads, Fweight);
-            //substract the F^-1(data) to grad
-            //std::cout << omp_get_thread_num() << ", " <<  m_c << ", " << nr_threads << std::endl;
-#pragma omp for reduction(+:resi)
-            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
-            {
-                A3D_ELEM(grads, k, i, j) -= A3D_ELEM(Mout, k, i, j);
-                resi += A3D_ELEM(grads, k, i, j)*A3D_ELEM(grads, k, i, j);
-            }
-
-#pragma omp single
-            {
-            resi = std::sqrt(resi);
-            }
-
-            
-            //real_grads /= resi;
-#pragma omp for
-            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
-            {
-                A3D_ELEM(grads, k, i, j) /= resi;
-            }
-            //getGraphGrads(vol_out, real_grads, tv_beta);
-            int hZ = (int)(ZSIZE(vol_out)/2);
-            int hY = (int)(YSIZE(vol_out)/2);
-            int hX = (int)(XSIZE(vol_out)/2);
-#pragma omp for
-            FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY3D(vol_out)
-            {
-                RFLOAT tmp = 0.;
-                int kp = k + hZ;
-                int ip = i + hY;
-                int jp = j + hX;
-                if (kp >= ZSIZE(vol_out)) kp -= ZSIZE(vol_out);
-                if (ip >= YSIZE(vol_out)) ip -= YSIZE(vol_out);
-                if (jp >= XSIZE(vol_out)) jp -= XSIZE(vol_out);
-                kp -= hZ;
-                ip -= hY;
-                jp -= hX;
-
-                if( kp > STARTINGZ(vol_out))
-                {
-                    int kpp = kp - 1 + hZ;
-                    if(kpp < hZ) kpp += hZ;
-                    else kpp -= hZ;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, kpp, i, j);
-                }
-                if( kp < FINISHINGZ(vol_out))
-                {
-                    int kpp = kp + 1 + hZ;
-                    if(kpp < hZ) kpp += hZ;
-                    else kpp -= hZ;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, kpp, i, j);
-                }
-                if( ip > STARTINGY(vol_out))
-                {
-                    int ipp = ip - 1 + hY;
-                    if(ipp < hY) ipp += hY;
-                    else ipp -= hY;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, ipp, j);
-                }
-                if( ip < FINISHINGY(vol_out))
-                {
-                    int ipp = ip + 1 + hY;
-                    if(ipp < hY) ipp += hY;
-                    else ipp -= hY;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, ipp, j);
-                }
-                if( jp > STARTINGX(vol_out))
-                {
-                    int jpp = jp - 1 + hX;
-                    if(jpp < hX) jpp += hX;
-                    else jpp -= hX;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, i, jpp);
-                }
-                if( jp < FINISHINGX(vol_out))
-                {
-                    int jpp = jp + 1 + hX;
-                    if(jpp < hX) jpp += hX;
-                    else jpp -= hX;
-                    tmp += DIRECT_A3D_ELEM(vol_out, k, i, j) - DIRECT_A3D_ELEM(vol_out, k, i, jpp);
-                }
-                DIRECT_A3D_ELEM(grads, k, i, j) += tmp*tv_beta;
-            }
-
-#pragma omp for
-            FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
-            {
-                RFLOAT tmp = A3D_ELEM(momentum, k, i, j);
-                A3D_ELEM(momentum, k, i, j) = mu*A3D_ELEM(momentum, k, i, j) - l_r*A3D_ELEM(grads, k, i, j);
-                A3D_ELEM(grads, k, i, j) = tmp;
-            }
-
-            //gradient descent
-            //then do thresholding
-#pragma omp for reduction(+:resi_v)
-            FOR_ALL_ELEMENTS_IN_ARRAY3D(vol_out)
-            {
-                RFLOAT tmp = A3D_ELEM(vol_out, k, i, j);
-                A3D_ELEM(vol_out, k, i, j) = A3D_ELEM(vol_out, k, i, j) + A3D_ELEM(momentum, k, i, j) + mu*(A3D_ELEM(momentum, k, i, j) - A3D_ELEM(grads, k, i, j));
-                if(A3D_ELEM(vol_out, k, i, j) < l_r*tv_alpha && A3D_ELEM(vol_out, k, i, j) > -l_r*tv_alpha)
-                {
-                    A3D_ELEM(vol_out, k, i, j) = 0.;
-                }
-                else 
-                {
-                    if(A3D_ELEM(vol_out, k, i, j) > 0.)
-                    {
-                        A3D_ELEM(vol_out, k, i, j) -= l_r*tv_alpha;
-                    }
-                    else 
-                    {
-                        A3D_ELEM(vol_out, k, i, j) += l_r*tv_alpha;
-                    }
-                }
-                tmp -= A3D_ELEM(vol_out, k, i, j);
-                resi_v += tmp*tmp;
-            }
-            //swap vol_out_p and vol_out
-            if(m_c % 10 == 0)
-            {
-#pragma omp master
-                {
-                    std::cout << resi;
-                    resi = 0.; 
-                }
-#pragma omp barrier
-#pragma omp for reduction (+:resi)
-                FOR_ALL_ELEMENTS_IN_ARRAY3D(grads)
-                {
-                    //resi += A3D_ELEM(real_grads, k, i, j)*A3D_ELEM(real_grads, k, i, j);
-                    resi += A3D_ELEM(vol_out, k, i, j)*A3D_ELEM(vol_out, k, i, j);
-                    //resi_v += (A3D_ELEM(vol_out, k, i, j) - A3D_ELEM(vol_out_p, k, i, j))*(A3D_ELEM(vol_out, k, i, j) - A3D_ELEM(vol_out_p, k, i, j));
-
-                }
-#pragma omp master
-                {
-                    resi /= MULTIDIM_SIZE(grads);
-                    resi_v /= MULTIDIM_SIZE(grads);
-                    std::cout << " norm vol_out: " << std::sqrt(resi);
-                    std::cout << " " << l_r << " residual: " << std::sqrt(resi_v/resi) << std::endl;
-                }
-                //std::cout << " vol_out - vol_out_p: " << std::sqrt(resi_v/resi) << " " << m_c << std::endl;
-            }
-        }
-        momentum.clear();
-        grads.clear();
-        }
-
         //window map
         CenterFFT(vol_out,true);
 
@@ -2671,6 +2543,9 @@ void BackProjector::applyPointGroupSymmetry()
 	        	z = (RFLOAT)k;
 	        	r2 = x*x + y*y + z*z;
 	        	if (r2 <= rmax2)
+                //consider using rectangle
+                //if(x*x > rmax2 || y*y > rmax2 || z*z > rmax2) continue;
+                //else
 	        	{
 	        		// coords_output(x,y) = A * coords_input (xp,yp)
 					xp = x * R(0, 0) + y * R(0, 1) + z * R(0, 2);
@@ -2707,7 +2582,11 @@ void BackProjector::applyPointGroupSymmetry()
 					fz = zp - z0;
 					z0 -= STARTINGZ(data);
 					z1 = z0 + 1;
-
+                    //Consider using rectangle, skip out of bound data
+                    if(x0 < 0 || y0 < 0 || z0 < 0 ||
+						x1 < 0 || y1 < 0 || z1 < 0 ||
+                        x0 >= XSIZE(data) || y0  >= YSIZE(data) || z0 >= ZSIZE(data) ||
+						x1 >= XSIZE(data) || y1  >= YSIZE(data)  || z1 >= ZSIZE(data)) continue;
 #ifdef CHECK_SIZE
 					if (x0 < 0 || y0 < 0 || z0 < 0 ||
 						x1 < 0 || y1 < 0 || z1 < 0 ||

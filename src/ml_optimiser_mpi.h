@@ -125,6 +125,9 @@ public:
      */
     void joinTwoHalvesAtLowResolution();
 
+    //exchange data and weight for two random halves
+    void exchangeTwoHalves();
+
     void onlineUpdate(int ith_recons);
 
     /** When refining two random halves separately, the master receives both models, calculates FSC and the power of their difference

@@ -1922,7 +1922,7 @@ void MlOptimiserMpi::maximization()
     }
 
     if (do_auto_refine && has_converged) {
-        mymodel.tv_iters *= 1.5;
+        mymodel.tv_iters *= 2;
         mymodel.tv_alpha *= 0.9;
         mymodel.tv_beta *= 0.9;
     }
@@ -2527,6 +2527,74 @@ void MlOptimiserMpi::joinTwoHalvesAtLowResolution()
 
 #ifdef DEBUG
 	std::cerr << "MlOptimiserMpi::joinTwoHalvesAtLowResolution: done" << std::endl;
+#endif
+
+}
+
+void MlOptimiserMpi::exchangeTwoHalves()
+{
+#ifdef DEBUG
+	std::cerr << "MlOptimiserMpi::exchangeTwoHalves: Entering " << std::endl;
+#endif
+
+	if (!do_split_random_halves)
+		REPORT_ERROR("BUG: you should not be in MlOptimiserMpi::exchangeTwoHalves!");
+
+	// Loop over all classes (this will be just one class for now...)
+	RFLOAT myres = XMIPP_MAX(low_resol_join_halves, 1./mymodel.current_resolution);
+	int lowres_r_max = CEIL(mymodel.ori_size * mymodel.pixel_size / myres);
+
+	for (int iclass = 0; iclass < mymodel.nr_classes; iclass++ )
+	{
+		if (node->rank == 1 || node->rank == 2)
+		{
+			MultidimArray<Complex > lowres_data;
+			MultidimArray<RFLOAT > lowres_weight;
+
+            wsum_model.BPref[iclass].getTestDataAndWeight(lowres_data, lowres_weight);
+			if (node->rank == 2)
+			{
+				MPI_Status status;
+
+				// The second slave sends its lowres_data and lowres_weight to the first slave
+				node->relion_MPI_Send(MULTIDIM_ARRAY(lowres_data), 2*MULTIDIM_SIZE(lowres_data), MY_MPI_DOUBLE, 1, MPITAG_IMAGE, MPI_COMM_WORLD);
+				node->relion_MPI_Send(MULTIDIM_ARRAY(lowres_weight), MULTIDIM_SIZE(lowres_weight), MY_MPI_DOUBLE, 1, MPITAG_RFLOAT, MPI_COMM_WORLD);
+
+				// Now the first slave is calculating the average....
+
+				// Then the second slave receives the average back from the first slave
+				node->relion_MPI_Recv(MULTIDIM_ARRAY(lowres_data), 2*MULTIDIM_SIZE(lowres_data), MY_MPI_DOUBLE, 1, MPITAG_IMAGE, MPI_COMM_WORLD, status);
+				node->relion_MPI_Recv(MULTIDIM_ARRAY(lowres_weight), MULTIDIM_SIZE(lowres_weight), MY_MPI_DOUBLE, 1, MPITAG_RFLOAT, MPI_COMM_WORLD, status);
+			
+                // Now node 2 have the test data from node 1, set them back into the backprojector
+			    wsum_model.BPref[iclass].setTestDataAndWeight(lowres_data, lowres_weight);
+
+			}
+			else if (node->rank == 1)
+			{
+
+				std::cout << " Exchange test data and weight ..." << std::endl;
+				MPI_Status status;
+				// The first slave receives the average from the second slave
+				node->relion_MPI_Recv(MULTIDIM_ARRAY(lowres_data), 2*MULTIDIM_SIZE(lowres_data), MY_MPI_DOUBLE, 2, MPITAG_IMAGE, MPI_COMM_WORLD, status);
+				node->relion_MPI_Recv(MULTIDIM_ARRAY(lowres_weight), MULTIDIM_SIZE(lowres_weight), MY_MPI_DOUBLE, 2, MPITAG_RFLOAT, MPI_COMM_WORLD, status);
+                //after recieve test data from node 2, set test data for node 1
+                wsum_model.BPref[iclass].setTestDataAndWeight(lowres_data, lowres_weight);
+
+                //get test data for node 1
+                wsum_model.BPref[iclass].getTestDataAndWeight(lowres_data, lowres_weight);
+				// The first slave sends the lowres_data and lowres_weight also back to the second slave
+				node->relion_MPI_Send(MULTIDIM_ARRAY(lowres_data), 2*MULTIDIM_SIZE(lowres_data), MY_MPI_DOUBLE, 2, MPITAG_IMAGE, MPI_COMM_WORLD);
+				node->relion_MPI_Send(MULTIDIM_ARRAY(lowres_weight), MULTIDIM_SIZE(lowres_weight), MY_MPI_DOUBLE, 2, MPITAG_RFLOAT, MPI_COMM_WORLD);
+
+			}
+
+		}
+	}
+
+
+#ifdef DEBUG
+	std::cerr << "MlOptimiserMpi::exchangeTwoHalves: done" << std::endl;
 #endif
 
 }
@@ -3188,6 +3256,9 @@ void MlOptimiserMpi::iterate()
 				// For asymmetric molecules, join 2 half-reconstructions at the lowest resolutions to prevent them from diverging orientations
 				if (low_resol_join_halves > 0.)
 					joinTwoHalvesAtLowResolution();
+
+                //after exchange two halves, we have test data and weight in backprojector
+                exchangeTwoHalves();
 
 				// Sjors 27-oct-2015
 				// Calculate gold-standard FSC curve

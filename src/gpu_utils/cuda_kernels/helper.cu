@@ -803,17 +803,19 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
         int jp = pixel - kp * (Y*X) - ip * X;
         if(kp >= X) kp -= (Z);
         if(ip >= X) ip -= (Y);
+        XFLOAT freq = kp*kp + ip*ip + jp*jp;
+        freq = 39.4784176*freq/(X*X) + 1.;
         if(kp < XX && kp > -XX && ip < XX && ip > -XX && jp < XX) {
             if(kp < 0) kp += ZZ;
             if(ip < 0) ip += YY;
             int n_pixel = kp*(YY*XX) + ip*XX + jp;
-            A[pixel*2] *= (B[n_pixel]*S + w);
-            A[pixel*2+1] *= (B[n_pixel]*S + w);
+            A[pixel*2] *= (B[n_pixel]*S + w*freq);
+            A[pixel*2+1] *= (B[n_pixel]*S + w*freq);
         } else {
             //A[pixel*2] = 0.;
             //A[pixel*2+1] = 0.;
-            A[pixel*2] *=w;
-            A[pixel*2+1] *=w;
+            A[pixel*2] *=w*freq;
+            A[pixel*2+1] *=w*freq;
         }
     }
 }
@@ -977,7 +979,7 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
 {
     int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
     if(pixel < image_size){
-        XFLOAT th = l_r*alpha/(eps+img[pixel]);
+        XFLOAT th = l_r*alpha/(eps+fabsf(img[pixel]));
         XFLOAT tmp = img[pixel];
         img[pixel] -=  l_r*grads[pixel];
         grads[pixel] = tmp;
@@ -1032,7 +1034,7 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
         }
 
         pixel = k*Y*X + i*X + j;
-        XFLOAT th = l_r*alpha/(eps+img[pixel]);
+        XFLOAT th = l_r*alpha/(eps+fabsf(img[pixel]));
         XFLOAT tmp = img[pixel];
         img[pixel] -=  l_r*grads[pixel];
         //grads[pixel] = tmp;

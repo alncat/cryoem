@@ -40,6 +40,10 @@ public:
 	// For backward projection: sum of weights
 	MultidimArray<RFLOAT> weight;
 
+    //store test data
+    MultidimArray<RFLOAT> test_weight;
+    MultidimArray<Complex> test_data;
+
 	// Tabulated blob values
 	TabFtBlob tab_ftblob;
 
@@ -234,13 +238,14 @@ public:
 	 */
 	void getLowResDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight,
 			int lowres_r_max);
-
+    void getTestDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight);
 	/*
 	 * Set only the lowest resolution components from the data and weight array
 	 * (to be joined together for two independent halves in order to force convergence in the same orientation)
 	 */
 	void setLowResDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight,
 			int lowres_r_max);
+    void setTestDataAndWeight(MultidimArray<Complex > &lowres_data, MultidimArray<RFLOAT> &lowres_weight);
 
 	/*
 	 *  Get complex array at the original size as the straightforward average
