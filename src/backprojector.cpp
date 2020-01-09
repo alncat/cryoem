@@ -1647,7 +1647,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 			// data_vs_prior is merely for reporting: it is not used for anything in the reconstruction
 			DIRECT_A1D_ELEM(data_vs_prior, i) = myssnr;
             //update fsc143
-            if(myfsc > 0.143) {
+            if(myfsc > 0.3) {
                 fsc143 = i;
             }
 		}

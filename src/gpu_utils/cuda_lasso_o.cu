@@ -279,9 +279,9 @@ void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT t
                     Z,
                     Y,
                     X,
-                    //ZZ,
-                    //YY,
-                    //XX,
+                    ZZ,
+                    YY,
+                    XX,
                     tv_beta,
                     tv_log_eps,//eps of log approximation
                     tv_eps,//eps of l1 norm approximation
@@ -317,12 +317,12 @@ void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT t
                 l_r,
                 tv_alpha,
                 eps,
-                //X,
-                //Y,
-                //Z,
-                //XX,
-                //YY,
-                //ZZ,
+                X,
+                Y,
+                Z,
+                XX,
+                YY,
+                ZZ,
                 grads.getSize());
                 //img_size_h);
         //update momentum and soft thresholding

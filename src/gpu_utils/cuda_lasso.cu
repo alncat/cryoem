@@ -56,7 +56,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     yob.alloc();
     sigma_norm.alloc();
     XFLOAT lambda = implicit_weight*normalise;
-    std::cout << "weight " << weight.getSize() << ", " << Fconv.getSize()<< std::endl;
+    //std::cout << "weight " << weight.getSize() << ", " << Fconv.getSize()<< std::endl;
     RFLOAT fconv_norm = 0.;
     XFLOAT yob_norm = 0.;
     int median_size = img_size_h/16;
@@ -202,12 +202,13 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     RFLOAT best_beta = tv_beta;
     RFLOAT best_eps = eps;
     for(int eps_i = 0; eps_i < 2; eps_i++){
-        eps = 0.1/(eps_i+1);
-        tv_log_eps = eps;
-        tv_alpha = alpha*fconv_norm*eps/3;
+        //eps = 0.05/(eps_i+1);
+        eps = 0.015;
+        tv_log_eps = eps/3;
+        tv_alpha = alpha/(eps_i+1.)*sqrt(normalise);//fconv_norm*eps/3;
         for(int beta_i = 0; beta_i < 5; beta_i++){
-            tv_beta = (beta - 0.1*beta_i)*fconv_norm*eps/3;
-            w = tv_beta;
+            tv_beta = beta/(eps_i+1.)*(1. - float(beta_i)/5.)*sqrt(normalise);//fconv_norm*eps/3;
+            w = tv_alpha;
             for(int m_c = 0; m_c <= tv_iters; m_c++){
                 //forward transform img/momentum
                 transformer.forward();
@@ -297,14 +298,14 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
                         //ZZ,
                         grads.getSize());
                 //img_size_h);
-                if(m_c && m_c % 100 == 0){
-                    std::cout << m_c << " ";
-                    RFLOAT img_norm = getSquareSumOnBlock(img);
-                    RFLOAT resi_norm = getSquareSumOnBlock(grads);
-                    img_norm = sqrt(img_norm/img_size_h);
-                    resi_norm = sqrt(resi_norm/img_size_h);
-                    std::cout << "beta: " << tv_beta << " " << resi_norm << " " << img_norm << " " << resi_norm/img_norm << std::endl;
-                }
+                //if(m_c && m_c % 100 == 0){
+                //    std::cout << m_c << " ";
+                //    RFLOAT img_norm = getSquareSumOnBlock(img);
+                //    RFLOAT resi_norm = getSquareSumOnBlock(grads);
+                //    img_norm = sqrt(img_norm/img_size_h);
+                //    resi_norm = sqrt(resi_norm/img_size_h);
+                //    std::cout << "beta: " << tv_beta << " " << resi_norm << " " << img_norm << " " << resi_norm/img_norm << std::endl;
+                //}
                 //l_r *= exp(-0.0025);
             }
             //get fourier transform of current model
@@ -316,7 +317,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
             RFLOAT test_counter = 0.;
             RFLOAT avg_F = 0.;
             FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Ftest_weight){
-                if(kp*kp + ip*ip + jp*jp <= fsc143*fsc143) {
+                if(kp*kp + ip*ip + jp*jp <= 4*fsc143*fsc143) {
                     int kw = kp;
                     int iw = ip;
                     int jw = jp;
@@ -327,15 +328,15 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
                     if (w < 1.) continue;
                     RFLOAT diff_x = transformer.fouriers[index].x*scale - Ftest_conv.data[index].real/w;
                     RFLOAT diff_y = transformer.fouriers[index].y*scale - Ftest_conv.data[index].imag/w;
-                    test_err += (diff_x*diff_x + diff_y*diff_y);
-                    avg_F += (Ftest_conv.data[index].real/w)*(Ftest_conv.data[index].real/w);
-                    avg_F += (Ftest_conv.data[index].imag/w)*(Ftest_conv.data[index].imag/w);
+                    test_err += (diff_x*diff_x + diff_y*diff_y)*w;
+                    avg_F += (Ftest_conv.data[index].real/w)*(Ftest_conv.data[index].real/w)*w;
+                    avg_F += (Ftest_conv.data[index].imag/w)*(Ftest_conv.data[index].imag/w)*w;
                     test_counter += 1;
                 }
             }
             test_err /= test_counter;
             avg_F /= test_counter;
-            std::cout << "eps_i: " << eps_i << " beta_i: " << beta_i << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
+            std::cout << "eps_i: " << eps_i << " " << beta_i << " beta_i: " << tv_beta << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
             if(min_err > test_err) {
                 min_err = test_err;
                 best_beta = tv_beta;
@@ -348,7 +349,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
         }//end beta search loop
     }//end eps search loop
     //print best beta
-    std::cout << "eps: " << best_eps << " tv_beta: " << best_beta << " min_err: " << min_err << std::endl;
+    std::cout << "eps: " << best_eps << " tv_beta: " << best_beta << " min_err: " << sqrt(min_err) << std::endl;
     //now copy image to host
     //now set vol_out and wait for stream to complete
     img.streamSync();

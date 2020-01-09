@@ -569,6 +569,7 @@ void MlOptimiserMpi::initialiseWorkLoad()
 		if (node->isMaster())
 		{
 			random_seed = time(NULL);
+            std::cout << "random_seed: " << random_seed << std::endl;
 	        for (int slave = 1; slave < node->size; slave++)
 	        	node->relion_MPI_Send(&random_seed, 1, MPI_INT, slave, MPITAG_RANDOMSEED, MPI_COMM_WORLD);
 		}

@@ -804,7 +804,7 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
         if(kp >= X) kp -= (Z);
         if(ip >= X) ip -= (Y);
         XFLOAT freq = kp*kp + ip*ip + jp*jp;
-        freq = 39.4784176*freq/(X*X) + 1.;
+        freq = 1.;//39.4784176*freq/(X*X) + 1.;
         if(kp < XX && kp > -XX && ip < XX && ip > -XX && jp < XX) {
             if(kp < 0) kp += ZZ;
             if(ip < 0) ip += YY;
@@ -991,6 +991,7 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
             } else {
                 img[pixel] += th;
             }
+            //atomicAdd(tot, 1./((fabsf(img[pixel])+eps)*image_size));
         }
         grads[pixel] -= img[pixel];
     }
@@ -1189,6 +1190,7 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
         if(norm > eps*eps){
             tmp /= sqrt(norm);
             gtmp += tmp*beta;
+            
         } else {
             gtmp += tmp*beta/eps;
         }
@@ -1556,8 +1558,10 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
         norm = sqrt(norm);
         if(norm > eps){
             tmp /= norm;
+            //atomicAdd(tot, 1./(norm*image_size));
         } else {
             tmp /= eps;
+            //atomicAdd(tot, 1./(eps*image_size));
         }
         gtmp += tmp/(norm + epslog)*beta;
         //got the norm of kl-1, il, jl
