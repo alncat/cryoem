@@ -2007,7 +2007,7 @@ void MlOptimiserMpi::maximization()
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, &timer, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle, mymodel.tv_eps, mymodel.tv_epsp);
 #else
                        // if(cur_iter == 1 && !do_nag) {
                        //    mymodel.Iref[ith_recons].initZeros();
@@ -2016,7 +2016,7 @@ void MlOptimiserMpi::maximization()
 								mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 								mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 								mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
+								do_split_random_halves, (do_join_random_halves || do_always_join_random_halves), nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle, mymodel.tv_eps, mymodel.tv_epsp);
 #endif
                         //backup weight and data
                         //TODO: may use move assignment
@@ -2168,7 +2168,7 @@ void MlOptimiserMpi::maximization()
 									mymodel.tau2_fudge_factor, mymodel.tau2_class[ith_recons], mymodel.sigma2_class[ith_recons],
 									mymodel.data_vs_prior_class[ith_recons], mymodel.fourier_coverage_class[ith_recons],
 									mymodel.fsc_halves_class, wsum_model.pdf_class[iclass],
-									do_split_random_halves, do_join_random_halves, nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle);
+									do_split_random_halves, do_join_random_halves, nr_threads, minres_map, false, mymodel.do_tv, mymodel.tv_iters, mymodel.l_r, mymodel.tv_alpha, mymodel.tv_beta, mymodel.tv_weight, devBundle, mymodel.tv_eps, mymodel.tv_epsp);
 
                                 if(do_nag){
                                     //mymodel.weight_old[ith_recons] = wsum_model.BPref[ith_recons].weight;
@@ -3278,14 +3278,15 @@ void MlOptimiserMpi::iterate()
 					{
                         //if(node->rank == 1)
                         //    std::cout << DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) << std::endl;
-						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) < 0.5 && fsc05 < 0)
+						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.5)//MOD: && fsc05 < 0)
 							fsc05 = i;
-						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) < 0.143 && fsc0143 < 0)
+						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.143)//MOD: < 0.143 && fsc0143 < 0)
 							fsc0143 = i;
 					}
 					// At least fsc05 - fsc0143 + 5 shells as incr_size
-                    std::cout << "Node: " << node->rank <<  " fsc05: " << fsc05 << " fsc0143: " << fsc0143 << std::endl;
-					incr_size = XMIPP_MAX(incr_size, fsc0143 - fsc05 + 5);
+                    std::cout << "Node: " << node->rank <<  " fsc05: " << fsc05 << " fsc0143: " << fsc0143 << " incr_size: " << incr_size<< std::endl;
+					//incr_size = XMIPP_MAX(incr_size, fsc0143 - fsc05 + 5);
+                    incr_size = XMIPP_MAX(10, fsc0143 - fsc05 + 5);
 					has_high_fsc_at_limit = (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, mymodel.current_size/2 - 1) > 0.2);
 				}
 

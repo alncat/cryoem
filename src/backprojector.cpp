@@ -1190,7 +1190,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     RFLOAT eps = 0.0025;
 
     if(!do_nag && devBundle){
-        cuda_lasso(0, tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, data, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
+        cuda_lasso(0, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, data, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
     }
     else{
         //cerate an array for storing grads and momentum
@@ -1474,7 +1474,9 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                                 RFLOAT tv_alpha,
                                 RFLOAT tv_beta,
                                 RFLOAT tv_weight,
-                                void* devBundle)
+                                void* devBundle,
+                                RFLOAT tv_eps,
+                                RFLOAT tv_epsp)
 {
 
 #ifdef TIMING
@@ -1847,7 +1849,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         RFLOAT eps = 0.04;
 
         if(devBundle){
-            cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, eps, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight);
+            cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp);
         }
         //window map
         CenterFFT(vol_out,true);

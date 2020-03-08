@@ -15,8 +15,8 @@ inline int mapToCompact(int k, int i, int j, int Z, int Y, int X, int ZZ, int YY
     return k*Y*X + i*X + j;
 }
 
-void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, RFLOAT eps, MultidimArray<RFLOAT> &Fconv,
-        MultidimArray<RFLOAT> &Fweight, MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight){
+void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, MultidimArray<RFLOAT> &Fconv,
+        MultidimArray<RFLOAT> &Fweight, MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight, RFLOAT eps, RFLOAT epsp){
     //normfft = max(normfft, 1.);
     cudaSetDevice(devBundle->device_id);
     devBundle->setStream();
@@ -185,9 +185,9 @@ void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT t
     yob_norm = sqrt(yob_norm);
     //eps = yob_norm*1.;
     //eps = max(pq.top(), 0.1);
-    eps = 0.1;
+    //eps = 0.1;
     XFLOAT tv_eps = 1./sqrt(normalise);//0.00005;
-    XFLOAT tv_log_eps = eps;
+    XFLOAT tv_log_eps = epsp;
     int FBsize = (int) ceilf((float)transformer.fouriers.getSize()/(float)BLOCK_SIZE);
     int imgBsize = (int) ceilf((float)img_size_h/(float)BLOCK_SIZE);
     int imgBFsize = (int) ceilf((float)img.getSize()/(float)BLOCK_SIZE);
@@ -208,8 +208,8 @@ void cuda_lasso_o(int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT t
     std::cout << "start optimizing " << "lr: " << l_r << " lambda: " << lambda << " avg weight : " << normalise << " max weight: " << max_weight << " min weight: " << min_weight << " condition number: " << max_weight/min_weight << std::endl;
     //tv_alpha *= std::sqrt(normalise);
     //tv_beta *= std::sqrt(normalise);
-    tv_alpha *= fconv_norm*eps/3;
-    tv_beta *= fconv_norm*eps/3;
+    tv_alpha *= fconv_norm*eps;
+    tv_beta *= fconv_norm*tv_log_eps;
     //XFLOAT yob_norm = getSquareSumOnBlock(img);
     //XFLOAT yob_norm = 0;
     //for(int i = 0; i < img_size; i++){

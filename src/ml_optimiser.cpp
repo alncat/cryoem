@@ -422,11 +422,13 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     //mymodel.do_tv = textToInteger(parser.getOption("--do_tv", "Toggle graph net based reconstruction", "0"));
     mymodel.do_tv = parser.checkOption("--tv", "Using total variation based regularization");
 
-    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in graph net based reconstruction", "100"));
+    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in sparsity and smoothness based reconstruction", "100"));
     mymodel.l_r = textToFloat(parser.getOption("--tv_lr", "Learning rate for graph net based reconstrunction", "1"));
-    mymodel.tv_weight = textToFloat(parser.getOption("--tv_weight", "Weight for implicit regularisation parameter", "0.2"));
-    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 terms", "0.1"));
-    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for Graph L2 terms", "0.1"));
+    mymodel.tv_weight = textToFloat(parser.getOption("--tv_weight", "Weight for implicit regularisation parameter", "0.1"));
+    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 norm", "0.1"));
+    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for tv norm", "0.1"));
+    mymodel.tv_eps  = textToFloat(parser.getOption("--tv_eps", "eps value for l1 norm", "0.1"));
+    mymodel.tv_epsp = textToFloat(parser.getOption("--tv_epsp", "eps value for tv norm", "0.1"));
 	mymodel.nr_classes = textToInteger(parser.getOption("--K", "Number of references to be refined", "1"));
     acceptance_ratio = textToDouble(parser.getOption("--acceptance_ratio", "The acceptance_ratio for sample random sampling", "1."));
     particle_diameter = textToFloat(parser.getOption("--particle_diameter", "Diameter of the circular mask that will be applied to the experimental images (in Angstroms)", "-1"));
@@ -3992,16 +3994,20 @@ void MlOptimiser::updateCurrentResolution()
 		else
 		{
 			// Calculate at which resolution shell the data_vs_prior drops below 1
+            // MOD: use the last shell with 0.5 fsc
 			int ires;
 			for (int iclass = 0; iclass < mymodel.nr_classes; iclass++)
 			{
+                int fsc05 = 1;
 				for (ires = 1; ires < mymodel.ori_size/2; ires++)
 				{
-					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) < 1.)
-						break;
+					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) >= 1.)
+                        fsc05 = ires;
+						//break;
 				}
 				// Subtract one shell to be back on the safe side
 				ires--;
+                ires = fsc05;
 				if (ires > maxres)
 					maxres = ires;
 			}
@@ -4041,6 +4047,7 @@ void MlOptimiser::updateImageSizeAndResolutionPointers()
     // in the latter case, over-marginalisation may lead to spuriously high FSCs (2 smoothed maps may look very similar at high-res: all zero!)
     //
 	int maxres = mymodel.getPixelFromResolution(mymodel.current_resolution);
+    //std::cout << "maxres: " << maxres << " incr_size: " << incr_size << " limit: " << has_high_fsc_at_limit << std::endl;//MOD: current size
 	if (mymodel.ave_Pmax > 0.1 && has_high_fsc_at_limit)
     {
 		maxres += ROUND(0.25 * mymodel.ori_size / 2);

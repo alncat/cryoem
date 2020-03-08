@@ -308,7 +308,9 @@ public:
                      RFLOAT tv_alpha = 1,
                      RFLOAT tv_beta = 1,
                      RFLOAT tv_weight = 1,
-                     void* devBundle = NULL);
+                     void* devBundle = NULL,
+                     RFLOAT tv_eps = 0.1,
+                     RFLOAT tv_epsp = 0.1);
     //calculate the weighted gradient for graph reconstruction
     void getRealSpaceGrads(FourierTransformer &transformer, MultidimArray<RFLOAT> &Mout, MultidimArray<RFLOAT>& real_grads, MultidimArray<RFLOAT>& Fweight);
     //calculate the laplacian gradients

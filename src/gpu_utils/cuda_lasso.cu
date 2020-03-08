@@ -15,8 +15,8 @@ inline int mapToCompact(int k, int i, int j, int Z, int Y, int X, int ZZ, int YY
     return k*Y*X + i*X + j;
 }
 
-void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, RFLOAT eps, MultidimArray<RFLOAT> &Fconv,
-        MultidimArray<RFLOAT> &Fweight, MultidimArray<Complex> &Ftest_conv, MultidimArray<RFLOAT> &Ftest_weight, MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight){
+void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, MultidimArray<RFLOAT> &Fconv,
+        MultidimArray<RFLOAT> &Fweight, MultidimArray<Complex> &Ftest_conv, MultidimArray<RFLOAT> &Ftest_weight, MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight, RFLOAT eps, RFLOAT epsp){
     cudaSetDevice(devBundle->device_id);
     devBundle->setStream();
     std::cout <<" Device: " << devBundle->device_id <<", fsc143: " << fsc143;
@@ -173,7 +173,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     yob_norm = sqrt(yob_norm);
     //eps = yob_norm*1.;
     //eps = max(pq.top(), 0.1);
-    eps = 0.1;
+    //eps = 0.1;
     XFLOAT tv_eps = 1./sqrt(normalise);//0.00005;
     XFLOAT tv_log_eps = eps;
     int FBsize = (int) ceilf((float)transformer.fouriers.getSize()/(float)BLOCK_SIZE);
@@ -203,11 +203,11 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     RFLOAT best_eps = eps;
     for(int eps_i = 0; eps_i < 2; eps_i++){
         //eps = 0.05/(eps_i+1);
-        eps = 0.015;
-        tv_log_eps = eps/3;
-        tv_alpha = alpha/(eps_i+1.)*sqrt(normalise);//fconv_norm*eps/3;
+        //eps = 0.01;
+        tv_log_eps = epsp;//eps*2;
+        tv_alpha = alpha/(eps_i+1.)*fconv_norm*eps;//sqrt(normalise);//fconv_norm*eps/3;
         for(int beta_i = 0; beta_i < 5; beta_i++){
-            tv_beta = beta/(eps_i+1.)*(1. - float(beta_i)/5.)*sqrt(normalise);//fconv_norm*eps/3;
+            tv_beta = beta/(eps_i+1.)*(1. - float(beta_i)/5.)*fconv_norm*tv_log_eps;//sqrt(normalise);//fconv_norm*eps/3;
             w = tv_alpha;
             for(int m_c = 0; m_c <= tv_iters; m_c++){
                 //forward transform img/momentum

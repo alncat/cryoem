@@ -560,6 +560,14 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT l_r,
                                            XFLOAT alpha,
                                            XFLOAT eps,
+                                           XFLOAT sparse,
+                                           int image_size);
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *grads,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
                                            int X,
                                            int Y,
                                            int Z,
@@ -615,6 +623,17 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
                                        XFLOAT beta,
                                        XFLOAT epslog,
                                        XFLOAT eps,
+                                       int image_size);
+
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Z,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT epslog,
+                                       XFLOAT eps,
+                                       XFLOAT sparse,
                                        int image_size);
 
 __global__ void cuda_kernel_graph_grad(XFLOAT *img,

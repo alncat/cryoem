@@ -1002,6 +1002,34 @@ __global__ void cuda_kernel_soft_threshold(XFLOAT *img,
                                            XFLOAT l_r,
                                            XFLOAT alpha,
                                            XFLOAT eps,
+                                           XFLOAT sparse,
+                                           int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT weight = 1./(1. + 40.*sparse*expf(-fabsf(img[pixel])/eps*39.));
+        XFLOAT th = (1. - 0.975*weight)*l_r*alpha;
+        XFLOAT tmp = img[pixel];
+        img[pixel] -=  l_r*grads[pixel];
+        grads[pixel] = tmp;
+        if(img[pixel] < th && img[pixel] > -th){
+            img[pixel] = 0.;
+        } else {
+            if(img[pixel] >= th){
+                img[pixel] -= th;
+            } else {
+                img[pixel] += th;
+            }
+        }
+        grads[pixel] -= img[pixel];
+    }
+}
+
+__global__ void cuda_kernel_soft_threshold(XFLOAT *img,
+                                           XFLOAT *grads,
+                                           XFLOAT l_r,
+                                           XFLOAT alpha,
+                                           XFLOAT eps,
                                            int X,
                                            int Y,
                                            int Z,
@@ -1687,6 +1715,157 @@ __global__ void cuda_kernel_graph_grad(XFLOAT *img,
 
 }
 
+__global__ void cuda_kernel_graph_grad(XFLOAT *img,
+                                       XFLOAT *grads,
+                                       int Z,
+                                       int Y,
+                                       int X,
+                                       XFLOAT beta,
+                                       XFLOAT epslog,
+                                       XFLOAT eps,
+                                       XFLOAT sparse,
+                                       int image_size)
+{
+    int pixel = threadIdx.x + blockIdx.x*BLOCK_SIZE;
+    if(pixel < image_size){
+        XFLOAT val = img[pixel];
+        int k = pixel/(Y*X);
+        int i = (pixel - k*Y*X)/X;
+        int j = pixel - k*Y*X - i*X;
+        int hZ = Z>>1;
+        int hY = Y>>1;
+        int hX = X>>1;
+        XFLOAT tmp = 0.;
+        int kl = k ;//+ hZ;
+        int il = i ;//+ hY;
+        int jl = j ;//+ hX;
+        if (kl >= hZ) kl -= Z;
+        if (il >= hY) il -= Y;
+        if (jl >= hX) jl -= X;
+        //kl -= hZ;
+        //il -= hY;
+        //jl -= hX;
+        XFLOAT norm = 0.;
+        XFLOAT gtmp = 0.;
+        int kpp = kl + 1;
+        if(kl < -1) kpp += Z;
+        int ipp = il + 1;
+        if(il < -1) ipp += Y;
+        int jpp = jl + 1;
+        if(jl < -1) jpp += X;
+
+        if( kl < hZ - 1){
+            int loc = kpp*Y*X + i*X + j;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if( il < hY - 1){
+            int loc = k*Y*X + ipp*X + j;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        if( jl < hX - 1){
+            int loc = k*Y*X + i*X + jpp;
+            XFLOAT img_loc = img[loc];
+            tmp += val - img_loc;
+            norm += (val - img_loc)*(val - img_loc);
+        }
+        norm = sqrt(norm);
+        if(norm > eps){
+            tmp /= norm;
+        } else {
+            tmp /= eps;
+        }
+        //gtmp += tmp/(norm + epslog)*beta;
+        XFLOAT weight = 1./(1. + 10.*sparse*expf(-norm/epslog*9.));
+        gtmp += (1. - 0.9*weight)*tmp*beta;
+        //got the norm of kl-1, il, jl
+        if( kl > -hZ ){
+            int kpm = kl - 1;
+            if(kl < 1) kpm += Z;
+            XFLOAT nval = img[kpm*Y*X + i*X + j];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( il < hY - 1){
+                int loc = kpm*Y*X + ipp*X + j;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if( jl < hX - 1){
+                int loc = kpm*Y*X + i*X + jpp;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            norm = sqrt(norm);
+            if(norm > eps){
+                tmp /= norm;
+            } else {
+                tmp /= eps;
+            }
+            //gtmp += tmp/(norm + epslog)*beta;
+            XFLOAT weight = 1./(1. + 10.*sparse*expf(-norm/epslog*9.));
+            gtmp += (1. - 0.9*weight)*tmp*beta;
+        }
+        //got the norm of kl, il - 1, jl
+        if( il > -hY ){
+            norm = 0.;
+            int ipm = il - 1;
+            if(il < 1) ipm += Y;
+            XFLOAT nval = img[k*Y*X + ipm*X + j];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( kl < hZ - 1){
+                int loc = kpp*Y*X + ipm*X + j;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            if( jl < hX - 1){
+                int loc = k*Y*X + ipm*X + jpp;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            norm = sqrt(norm);
+            if(norm > eps){
+                tmp /= norm;
+            } else {
+                tmp /= eps;
+            }
+            //gtmp += tmp*beta/(norm + epslog);
+            XFLOAT weight = 1./(1. + 10.*sparse*expf(-norm/epslog*9.));
+            gtmp += (1. - 0.9*weight)*tmp*beta;
+        }
+        //got the norm of kl, il, jl - 1
+        if( jl > -hX ){
+            int jpm = jl - 1;
+            if(jl < 1) jpm += X;
+            XFLOAT nval = img[k*Y*X + i*X + jpm];
+            tmp = val - nval;
+            norm = tmp*tmp;
+            if( kl < hZ - 1){
+                int loc = kpp*Y*X + i*X + jpm;
+                norm += (nval - img[loc])*(nval - img[loc]);
+            }
+            if( il < hY - 1){
+                int loc = k*Y*X + ipp*X + jpm;
+                XFLOAT img_loc = img[loc];
+                norm += (nval - img_loc)*(nval - img_loc);
+            }
+            norm = sqrt(norm);
+            if(norm > eps){
+                tmp /= norm;
+            } else {
+                tmp /= eps;
+            }
+            //gtmp += tmp/(norm + epslog)*beta;
+            XFLOAT weight = 1./(1. + 10.*sparse*expf(-norm/epslog*9.));
+            gtmp += (1. - 0.9*weight)*tmp*beta;
+        }
+        grads[pixel] += gtmp;
+    }
+
+}
 __global__ void cuda_kernel_finalizeMstddev( XFLOAT *Mstddev,
 											 XFLOAT *aux,
 											 XFLOAT S,
