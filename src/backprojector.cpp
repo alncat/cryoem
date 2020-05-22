@@ -1569,7 +1569,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     //Fweight.reshape(Fconv);
     //Fweight.reshape(pad_size, pad_size, pad_size/2+1);
     Fweight.reshape(weight.zdim, weight.ydim, weight.xdim);
-    Ftest_weight.reshape(weight.zdim, weight.ydim, weight.xdim);
+    if(MULTIDIM_SIZE(test_weight))
+        Ftest_weight.reshape(weight.zdim, weight.ydim, weight.xdim);
     //std::cout << "Fweight ";
     //Fweight.printShape();
     if (!skip_gridding && !do_tv)
@@ -1578,7 +1579,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 	// Go from projector-centered to FFTW-uncentered
 	decenter(weight, Fweight, max_r2);
     //decenter test_weight
-    decenter(test_weight, Ftest_weight, max_r2);
+    if(MULTIDIM_SIZE(test_weight))
+        decenter(test_weight, Ftest_weight, max_r2);
     //std::cout << "decenter!!!!!" << std::endl;
 	// Take oversampling into account
 	RFLOAT oversampling_correction = (ref_dim == 3) ? (padding_factor * padding_factor * padding_factor) : (padding_factor * padding_factor);
@@ -1752,7 +1754,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //test conv will store the test data
         MultidimArray<Complex> Ftest_conv(Fconv, true);
         decenter(data, Fconv, max_r2);
-        decenter(test_data, Ftest_conv, max_r2);
+        if(MULTIDIM_SIZE(test_data))
+            decenter(test_data, Ftest_conv, max_r2);
 
         //std::cout << "Fconv";
         //Fconv.printShape();
@@ -1849,7 +1852,10 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         RFLOAT eps = 0.04;
 
         if(devBundle){
-            cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp);
+            if(MULTIDIM_SIZE(test_weight))
+                cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp);
+            else
+                cuda_lasso_o(tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp)
         }
         //window map
         CenterFFT(vol_out,true);
