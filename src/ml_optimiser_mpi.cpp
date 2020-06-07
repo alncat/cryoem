@@ -2911,16 +2911,54 @@ void MlOptimiserMpi::onlineUpdate(int ith_recons){
             std::swap(mymodel.weight_old[ith_recons].data, wsum_model.BPref[ith_recons].weight.data);
             std::swap(mymodel.data_old[ith_recons].data, wsum_model.BPref[ith_recons].data.data);
         }
+        //get average value of weight
+        RFLOAT r_max = (wsum_model.BPref[ith_recons].weight.xdim - 1)/2.;
+        RFLOAT max_r2 = ROUND(2*r_max)*ROUND(2*r_max);
+        RFLOAT avg_weight = 0.;
+        RFLOAT counter = 0.;
+        FOR_ALL_ELEMENTS_IN_ARRAY3D(wsum_model.BPref[ith_recons].weight) {
+            RFLOAT r2 = k*k + i*i + j*j;
+            if(r2 < max_r2) {
+                avg_weight += A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                counter += 1;
+            }
+        }
+        avg_weight /= counter;
+        r_max = (mymodel.weight_old[ith_recons].xdim - 1)/2.;
+        max_r2 = ROUND(2*r_max)*ROUND(2*r_max);
+        RFLOAT avg_weight_old = 0.;
+        counter = 0.;
+        FOR_ALL_ELEMENTS_IN_ARRAY3D(mymodel.weight_old[ith_recons]){
+            RFLOAT r2 = k*k + i*i + j*j;
+            if(r2 < max_r2) {
+                avg_weight_old += A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j);
+                counter += 1;
+            }
+        }
+        avg_weight_old /= counter;
+        RFLOAT scale = 1.;
+        if(swapped) scale = avg_weight/avg_weight_old;
+        else scale = avg_weight_old/avg_weight;
         FOR_ALL_ELEMENTS_IN_ARRAY3D(wsum_model.BPref[ith_recons].weight){
             if(k >= STARTINGZ(mymodel.weight_old[ith_recons]) && k <= FINISHINGZ(mymodel.weight_old[ith_recons]) 
                     && i >= STARTINGY(mymodel.weight_old[ith_recons]) && i <= FINISHINGY(mymodel.weight_old[ith_recons])
                     && j >= STARTINGX(mymodel.weight_old[ith_recons]) && j <= FINISHINGX(mymodel.weight_old[ith_recons])) {
-                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
-                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                if(swapped) {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*scale*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*scale*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                } else {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + scale*(1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + scale*(1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                }
 
             } else {
-                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= (1. - mu);
-                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= (1. - mu);
+                if(swapped) {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= (1. - mu);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= (1. - mu);
+                } else {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= scale*(1. - mu);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= scale*(1. - mu);
+                }
             }
         }
         if(swapped) mu = 1. - mu;

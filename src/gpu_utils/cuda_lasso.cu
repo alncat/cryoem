@@ -394,7 +394,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
             }
             test_err /= test_counter;
             avg_F /= test_counter;
-            std::cout << "eps_i: " << eps_i << " " << beta_i << " beta_i: " << tv_beta << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
+            std::cout << "alpha_i: " << tv_alpha << " " << beta_i << " beta_i: " << tv_beta << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
             if(min_err > test_err) {
                 min_err = test_err;
                 best_beta = tv_beta;
