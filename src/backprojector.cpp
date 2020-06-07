@@ -1793,7 +1793,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
 		//}
         RFLOAT avg_Fconv = 0.;
         RFLOAT counter = 0.;
-        bool masking = true;//!update_tau2_with_fsc || is_whole_instead_of_half;
+        //turn on masking when no other half
+        bool masking = !update_tau2_with_fsc || is_whole_instead_of_half;
         //save Fconv before masking
         if(masking) fsc143 = sqrt(max_r2)/2. - 1.;
         MultidimArray<Complex> Fdata(Fconv);
@@ -1812,7 +1813,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                 RFLOAT imag = FFTW_ELEM(Fconv, kp, ip, jp).imag/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
                 //avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
                 //avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
-                avg_Fconv += real*real + imag*imag;
+                avg_Fconv += (real*real + imag*imag)*FFTW_ELEM(Fweight, kp, ip, jp)*normfft;
                 counter += 1.;
             }
         }
@@ -1845,9 +1846,10 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         transformer.inverseFourierTransform();
         transformer.fReal = NULL;
         Mout.setXmippOrigin();
-        //divide by norm factor
+        //divide by norm factor since the original data are only normalized by 2D normalization factor
         Mout /= normfft;
-        //multiply test weight by normfft
+        //multiply test weight by normfft to put the test data on the same scale as 3D fourier transform, 
+        //the reason is the same as above
         Ftest_weight *= normfft;
         //RFLOAT resi_M = 0.;
         //FOR_ALL_ELEMENTS_IN_ARRAY3D(Mout)
