@@ -943,7 +943,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         
     }
     //omp_set_dynamic(0);
-    omp_set_num_threads(nr_threads);
+    //omp_set_num_threads(nr_threads);
 
     // Set Fweight, Fnewweight and Fconv to the right size
     transformer.setReal(vol_out, nr_threads); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
@@ -1190,7 +1190,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     RFLOAT eps = 0.0025;
 
     if(!do_nag && devBundle){
-        cuda_lasso(0, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, data, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
+        MultidimArray<RFLOAT> placeholder;
+        cuda_lasso(0, tv_iters, l_r, mu, tv_alpha, tv_beta, Fconv, Mout, placeholder, Fweight, data, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, normalise, normalise);
     }
     else{
         //cerate an array for storing grads and momentum
@@ -1670,11 +1671,17 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         counter.initZeros(ori_size/2 + 1);
         RFLOAT avg_Fweight = 0.;
         //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
+        //create a mask array
+        MultidimArray<RFLOAT> rand_mask(Fweight, true);
         FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
         {
             int r2 = kp * kp + ip * ip + jp * jp;
+            //set default value of mask to 1
+            FFTW_ELEM(rand_mask, kp, ip , jp) = 1.;
             if (r2 < max_r2)
             {
+                int rnd = rand() % 1000;
+                if(rnd < 100) FFTW_ELEM(rand_mask, kp, ip, jp) = 0.;
                 int ires = ROUND( sqrt((RFLOAT)r2) / padding_factor );
                 RFLOAT invw = DIRECT_A3D_ELEM(Fweight, k, i, j);
                 avg_Fweight += invw;
@@ -1785,20 +1792,33 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //    DIRECT_MULTIDIM_ELEM(Fconv, n) /= normalise;
 		//}
         RFLOAT avg_Fconv = 0.;
-        //RFLOAT counter = 0.;
-        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fconv)
- 		//{
-		//	int r2 = kp * kp + ip * ip + jp * jp;
-		//	if (r2 < max_r2)
-        //    {
-        //        //FFTW_ELEM(Fconv, kp, ip, jp) /= normfft;
-        //        avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
-        //        avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
-        //        counter += 1.;
-        //    }
-        //}
+        RFLOAT counter = 0.;
+        bool masking = true;//!update_tau2_with_fsc || is_whole_instead_of_half;
+        //save Fconv before masking
+        if(masking) fsc143 = sqrt(max_r2)/2. - 1.;
+        MultidimArray<Complex> Fdata(Fconv);
+
+        //check average scale of Fconv
+        FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
+ 		{
+			int r2 = kp * kp + ip * ip + jp * jp;
+            //mask before inverse fourier transform
+            if(masking) FFTW_ELEM(Fconv, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
+			if (r2 <= 4*fsc143*fsc143)
+            {
+                //FFTW_ELEM(Fconv, kp, ip, jp) /= normfft;
+                if(FFTW_ELEM(Fweight, kp, ip, jp) < 1.) continue;
+                RFLOAT real = FFTW_ELEM(Fconv, kp, ip, jp).real/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+                RFLOAT imag = FFTW_ELEM(Fconv, kp, ip, jp).imag/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+                //avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
+                //avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
+                avg_Fconv += real*real + imag*imag;
+                counter += 1.;
+            }
+        }
         //avg_Fweight /= MULTIDIM_SIZE(Fweight);
-        //avg_Fconv /= counter;
+        avg_Fconv /= counter;
+        std::cout << "avg_Fconv: " << sqrt(avg_Fconv) << std::endl;
 
         //transformer.inverseFourierTransform(Fin, Mout);
         //transformer.fReal = NULL; // Make sure to re-calculate fftw plan
@@ -1820,7 +1840,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //std::cout << "ssnr: " << ssnr << std::endl;
         avg_Fweight /= tot_weights;
         std::cout << "avg_Fweight: " << avg_Fweight << " " << normalise << std::endl;
-
+        
         transformer.setReal(Mout, nr_threads);
         transformer.inverseFourierTransform();
         transformer.fReal = NULL;
@@ -1835,6 +1855,26 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //    resi_M += A3D_ELEM(Mout, k, i, j)*A3D_ELEM(Mout, k, i, j);
         //}
         //resi_M /= MULTIDIM_SIZE(Mout);
+        //avg_Fconv = 0.;
+        //counter = 0.;
+        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
+ 		//{
+		//	int r2 = kp * kp + ip * ip + jp * jp;
+		//	if (r2 <= 4*fsc143*fsc143)
+        //    {
+        //        //FFTW_ELEM(Fconv, kp, ip, jp) /= normfft;
+        //        if(FFTW_ELEM(Fweight, kp, ip, jp) < 1.) continue;
+        //        RFLOAT real = FFTW_ELEM(Fconv, kp, ip, jp).real/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+        //        RFLOAT imag = FFTW_ELEM(Fconv, kp, ip, jp).imag/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+        //        //avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
+        //        //avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
+        //        avg_Fconv += real*real + imag*imag;
+        //        counter += 1.;
+        //    }
+        //}
+        ////avg_Fweight /= MULTIDIM_SIZE(Fweight);
+        //avg_Fconv /= counter;
+        //std::cout << "avg_Fconv: " << sqrt(avg_Fconv) << std::endl;
 
         //vol_out.resize(Mout);
         //vol_out.setXmippOrigin();
@@ -1852,10 +1892,11 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         RFLOAT eps = 0.04;
 
         if(devBundle){
-            if(MULTIDIM_SIZE(test_weight))
-                cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp);
-            else
-                cuda_lasso_o(tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp)
+            //if(MULTIDIM_SIZE(test_weight)) {
+                cuda_lasso(fsc143, tv_iters, l_r, mu, tv_alpha, tv_beta, Fdata, Mout, rand_mask, Fweight, Ftest_conv, Ftest_weight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normfft, true, tv_weight, tv_eps, tv_epsp, masking);
+            //}
+            //else
+            //    cuda_lasso_o(tv_iters, l_r, mu, tv_alpha, tv_beta, Mout, Fweight, vol_out, (MlDeviceBundle*) devBundle, ref_dim, avg_Fweight, normalise, true, tv_weight, tv_eps, tv_epsp)
         }
         //window map
         CenterFFT(vol_out,true);

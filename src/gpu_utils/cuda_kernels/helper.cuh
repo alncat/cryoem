@@ -536,6 +536,19 @@ __global__ void cuda_kernel_complex_multi( XFLOAT *A,
                                    int XX,
                                    int image_size);
 
+__global__ void cuda_kernel_complex_multi( XFLOAT *A,
+                                   XFLOAT *B,
+                                   XFLOAT *mask,
+                                   XFLOAT S,
+                                   XFLOAT w,
+                                   int Z,
+                                   int Y,
+                                   int X,
+                                   int ZZ,
+                                   int YY,
+                                   int XX,
+                                   int image_size);
+
 __global__ void cuda_kernel_update_momentum(XFLOAT *grads,
                                             XFLOAT *momentum,
                                             XFLOAT mu,
