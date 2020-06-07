@@ -46,6 +46,11 @@ Option | Function
 An exmaple of the command for running OPUS-SSRI is shown below,
 
 ```
---o /output-folder --i particle-stack --ini_high 40 --dont_combine_weights_via_disc --pool 4 --ctf --ctf_corrected_ref --iter 25 --particle_diameter 256 --flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 --norm --scale --j 8 --gpu 0,1,2,3 --tv_alpha 0.8 --tv_beta 4.0 --tv_eps 0.01 --tv_epsp 0.01 --tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine --split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4 
+/relion-luo/build/bin/relion_refine_mpi --o /output-folder --i particle-stack --ini_high 40 \ 
+--dont_combine_weights_via_disc --pool 4 --ctf --ctf_corrected_ref --iter 25 --particle_diameter 256 \
+--flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 \ 
+--norm --scale --j 8 --gpu 0,1,2,3 --tv_alpha 1.0 --tv_beta 2.0 --tv_eps 0.01 --tv_epsp 0.01 \
+--tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine \ 
+--split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4 
 
 ```
