@@ -47,6 +47,13 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
 #endif
 	//FourierTransformer transformer;
 	CUSTOM_ALLOCATOR_REGION_NAME("GFTCTF");
+    //copy mavg to gpu memory here
+	CudaGlobalPtr<XFLOAT> d_avg_img(baseMLO->avg_img.nzyxdim, 0,cudaMLO->devBundle->allocator);
+    d_avg_img.device_alloc();
+    for (int i=0; i < baseMLO->avg_img.nzyxdim; i++)
+		d_avg_img[i] = baseMLO->avg_img.data[i];
+    d_avg_img.cp_to_device();
+    d_avg_img.streamSync();
 
 	for (int ipart = 0; ipart < baseMLO->mydata.ori_particles[my_ori_particle].particles_id.size(); ipart++)
 	{
@@ -284,6 +291,14 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
 		// Apply the norm_correction term
 		if (baseMLO->do_norm_correction)
 		{
+            //consider substract mean before norm correction
+            cuda_kernel_substract<<<STBsize, BLOCK_SIZE>>>(
+                                    ~temp,
+                                    ~d_avg_img,
+                                    img_size);
+            LAUNCH_PRIVATE_ERROR(cudaGetLastError(),cudaMLO->errorStatus);
+            temp.streamSync();
+
 			CTIC(cudaMLO->timer,"norm_corr");
 			cuda_kernel_multi<<<STBsize,BLOCK_SIZE>>>(
 									~temp,
@@ -676,7 +691,7 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
 
 		CTIC(cudaMLO->timer,"powerClass");
 		// Store the power_class spectrum of the whole image (to fill sigma2_noise between current_size and ori_size
-		if (baseMLO->mymodel.current_size < baseMLO->mymodel.ori_size)
+		if (baseMLO->mymodel.current_size <= baseMLO->mymodel.ori_size)
 		{
 			CudaGlobalPtr<XFLOAT> spectrumAndXi2((baseMLO->mymodel.ori_size/2+1)+1,0,cudaMLO->devBundle->allocator); // last +1 is the Xi2, to remove an expensive memcpy
 			spectrumAndXi2.device_alloc();
@@ -2809,7 +2824,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			if (ires > -1)
 			{
 				thr_wsum_sigma2_noise[group_id].data[ires] += (RFLOAT) wdiff2s_sum[j];
-				exp_wsum_norm_correction[ipart] += (RFLOAT) wdiff2s_sum[j]; //TODO could be gpu-reduced
+				//exp_wsum_norm_correction[ipart] += (RFLOAT) wdiff2s_sum[j]; //TODO could be gpu-reduced
 			}
 		}
 	} // end loop ipart
@@ -2829,6 +2844,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		int group_id = baseMLO->mydata.getGroupId(part_id);
 
 		// If the current images were smaller than the original size, fill the rest of wsum_model.sigma2_noise with the power_class spectrum of the images
+        for (int ires = 0; ires < baseMLO->mymodel.ori_size/2 + 1; ires++)
+            exp_wsum_norm_correction[ipart] += DIRECT_A1D_ELEM(op.power_imgs[ipart], ires);
 		for (int ires = baseMLO->mymodel.current_size/2 + 1; ires < baseMLO->mymodel.ori_size/2 + 1; ires++)
 		{
 			DIRECT_A1D_ELEM(thr_wsum_sigma2_noise[group_id], ires) += DIRECT_A1D_ELEM(op.power_imgs[ipart], ires);

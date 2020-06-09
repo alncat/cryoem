@@ -115,6 +115,8 @@ public:
 	// Current weighted sums
 	MlWsumModel wsum_model;
 
+    MultidimArray<RFLOAT> avg_img;
+
 	// HEALPix sampling object for coarse sampling
 	HealpixSampling sampling;
 

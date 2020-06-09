@@ -2035,6 +2035,8 @@ void MlOptimiser::setSigmaNoiseEstimatesAndSetAverageImage(MultidimArray<RFLOAT>
     	total_sum += wsum_model.sumw_group[igroup];
     }
     Mavg /= total_sum;
+    //can store avg image here
+    avg_img = Mavg;
 
 	if (fn_ref == "None")
 	{
