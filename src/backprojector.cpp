@@ -1819,7 +1819,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         }
         //avg_Fweight /= MULTIDIM_SIZE(Fweight);
         avg_Fconv /= counter;
-        std::cout << "masking: " << masking << "avg_Fconv: " << sqrt(avg_Fconv) << " ";
+        std::cout << "masking: " << masking << " avg_Fconv: " << sqrt(avg_Fconv) << " ";
 
         //transformer.inverseFourierTransform(Fin, Mout);
         //transformer.fReal = NULL; // Make sure to re-calculate fftw plan

@@ -2850,7 +2850,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		{
 			DIRECT_A1D_ELEM(thr_wsum_sigma2_noise[group_id], ires) += DIRECT_A1D_ELEM(op.power_imgs[ipart], ires);
 			// Also extend the weighted sum of the norm_correction
-			exp_wsum_norm_correction[ipart] += DIRECT_A1D_ELEM(op.power_imgs[ipart], ires);
+			//exp_wsum_norm_correction[ipart] += DIRECT_A1D_ELEM(op.power_imgs[ipart], ires);
 		}
 
 		// Store norm_correction
@@ -2884,9 +2884,40 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			// Divide XA by the old scale_correction and AA by the square of that, because was incorporated into Fctf
 			exp_wsum_scale_correction_XA[ipart] /= baseMLO->mymodel.scale_correction[group_id];
 			exp_wsum_scale_correction_AA[ipart] /= baseMLO->mymodel.scale_correction[group_id] * baseMLO->mymodel.scale_correction[group_id];
-
+            
 			thr_wsum_signal_product_spectra[group_id] += exp_wsum_scale_correction_XA[ipart];
 			thr_wsum_reference_power_spectra[group_id] += exp_wsum_scale_correction_AA[ipart];
+            //let's get the bfactor for each particle here
+            RFLOAT mean_y = 0.;
+            RFLOAT mean_x = 0.;
+            RFLOAT counter = 0.;
+            for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++){
+                DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 0.;
+                if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires)){
+                    DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 1.;
+                    DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) = 0.5*log(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires));
+                    mean_y += DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires);
+                    mean_x += DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires);
+                    counter += 1;
+                }
+            }
+            mean_y /= counter;
+            mean_x /= counter;
+            //then using the closed form solution of 1d linear regression
+            RFLOAT xy = 0.;
+            RFLOAT xx = 0.;
+            for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++){
+                if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires)){
+                    xy += (DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) - mean_y);
+                    xx += (DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x);
+                }
+            }
+            RFLOAT a = xy/xx;
+            RFLOAT bfac = -a*4.;
+            RFLOAT b = mean_y - a*mean_x;
+            //update bfactor in metadata
+            DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC) += bfac;
+
 		}
 
 		// Calculate DLL for each particle

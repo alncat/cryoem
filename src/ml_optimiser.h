@@ -514,6 +514,9 @@ public:
     // Array with pointers to the resolution of each point in a Fourier-space FFTW-like array
 	MultidimArray<int> Mresol_fine, Mresol_coarse, Npix_per_shell;
 
+    // Array with the square of frequency modulus for each resolution shell
+    MultidimArray<RFLOAT> Mresol_freq_mod;
+
 	// Verbosity flag
 	int verb;
 

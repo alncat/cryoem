@@ -1665,6 +1665,14 @@ void MlOptimiser::initialiseGeneral(int rank)
 	sum_changes_optimal_offsets = 0.;
 	sum_changes_optimal_classes = 0.;
 	sum_changes_count = 0.;
+    //initialise the frequency modulus array for b factor correction
+    if (mymodel.data_dim == 2){
+        std::cout << "initialise frequency modulus array" << std::endl;
+        Mresol_freq_mod.resize(mymodel.ori_size/2 + 1);
+        for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++) {
+            DIRECT_A1D_ELEM(Mresol_freq_mod, ires) = RFLOAT(ires*ires)/(mymodel.ori_size*mymodel.pixel_size);
+        }
+    }
 
 	if (mymodel.data_dim == 3)
 	{
