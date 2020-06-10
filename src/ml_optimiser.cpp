@@ -1670,7 +1670,8 @@ void MlOptimiser::initialiseGeneral(int rank)
         std::cout << "initialise frequency modulus array" << std::endl;
         Mresol_freq_mod.resize(mymodel.ori_size/2 + 1);
         for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++) {
-            DIRECT_A1D_ELEM(Mresol_freq_mod, ires) = RFLOAT(ires*ires)/(mymodel.ori_size*mymodel.pixel_size);
+            DIRECT_A1D_ELEM(Mresol_freq_mod, ires) = RFLOAT(ires*ires)/(mymodel.ori_size*mymodel.pixel_size*mymodel.ori_size*mymodel.pixel_size);
+            //std::cout << DIRECT_A1D_ELEM(Mresol_freq_mod, ires) << std::endl;
         }
     }
 
@@ -8162,6 +8163,8 @@ void MlOptimiser::setMetaDataSubset(int first_ori_particle_id, int last_ori_part
 			mydata.MDimg.setValue(EMDL_PARTICLE_PMAX, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_PMAX), part_id);
 			mydata.MDimg.setValue(EMDL_PARTICLE_NR_SIGNIFICANT_SAMPLES,(int)DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_NR_SIGN), part_id);
 			mydata.MDimg.setValue(EMDL_IMAGE_NORM_CORRECTION, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_NORM), part_id);
+            //set bfactor!!!
+            mydata.MDimg.setValue(EMDL_CTF_BFACTOR, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_BFAC), part_id);
 
 			// For the moment, CTF, prior and transformation matrix info is NOT updated...
 			RFLOAT prior_x = DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_XOFF_PRIOR);

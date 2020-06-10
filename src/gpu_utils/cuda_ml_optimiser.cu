@@ -2888,35 +2888,55 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			thr_wsum_signal_product_spectra[group_id] += exp_wsum_scale_correction_XA[ipart];
 			thr_wsum_reference_power_spectra[group_id] += exp_wsum_scale_correction_AA[ipart];
             //let's get the bfactor for each particle here
-            RFLOAT mean_y = 0.;
-            RFLOAT mean_x = 0.;
-            RFLOAT counter = 0.;
-            for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++){
-                DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 0.;
-                if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires)){
-                    DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 1.;
-                    DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) = 0.5*log(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires));
-                    mean_y += DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires);
-                    mean_x += DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires);
-                    counter += 1;
+            bool any_l = false;
+            //for (int exp_iclass = sp.iclass_min; exp_iclass <= sp.iclass_max; exp_iclass++)
+            //    if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], baseMLO->mymodel.ori_size/8) > 1.) {
+            //        any_l = true;
+            //        break;
+            //    }
+            if(any_l){
+                exp_wsum_scale_correction_AA[ipart] *= baseMLO->mymodel.scale_correction[group_id] * baseMLO->mymodel.scale_correction[group_id]/op.sum_weight[ipart];
+                RFLOAT mean_y = 0.;
+                RFLOAT mean_x = 0.;
+                RFLOAT counter = 0.;
+                for(int ires = 0; ires < baseMLO->mymodel.ori_size/2 + 1; ires++){
+                    DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 0.;
+                    //if(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) == 0) std::cout << ires << std::endl;
+                    if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)){
+                        //now scale_correction_XA serves as a mask
+                        DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) = 1.;
+                        DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) = 0.5*log(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires));
+                        mean_y += DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires);
+                        mean_x += DIRECT_A1D_ELEM(baseMLO->Mresol_freq_mod, ires);
+                        counter += 1.;
+                    }
                 }
-            }
-            mean_y /= counter;
-            mean_x /= counter;
-            //then using the closed form solution of 1d linear regression
-            RFLOAT xy = 0.;
-            RFLOAT xx = 0.;
-            for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++){
-                if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires)){
-                    xy += (DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) - mean_y);
-                    xx += (DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(baseMLO->mymodel.Mresol_freq_mod, ires) - mean_x);
+                mean_y /= counter;
+                mean_x /= counter;
+                //then using the closed form solution of 1d linear regression
+                RFLOAT xy = 0.;
+                RFLOAT xx = 0.;
+                RFLOAT yy = 0.;
+                for(int ires = 0; ires < baseMLO->mymodel.ori_size/2 + 1; ires++){
+                    if(DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires)){
+                        xy += (DIRECT_A1D_ELEM(baseMLO->Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) - mean_y);
+                        xx += (DIRECT_A1D_ELEM(baseMLO->Mresol_freq_mod, ires) - mean_x)*(DIRECT_A1D_ELEM(baseMLO->Mresol_freq_mod, ires) - mean_x);
+                        yy += (DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) - mean_y)*(DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) - mean_y);
+                    }
                 }
+                RFLOAT a = xy/xx;
+                RFLOAT bfac = -a*4.;
+                RFLOAT b = mean_y - a*mean_x;
+                RFLOAT r2 = xy/sqrt(xx)/sqrt(yy);
+                //update bfactor in metadata
+                if(r2 > 0.9)
+                    std::cout << "mean_y: " << mean_y << " r2: " << r2 << " obfac: " << DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC) << " bfac: " << bfac << " b: " << exp(b) << std::endl;
+                if(r2 <= 0.9) bfac = 0.;
+                //else bfac = std::max(bfac, -40.);
+                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC) = std::max(DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC) + bfac, -80.);
             }
-            RFLOAT a = xy/xx;
-            RFLOAT bfac = -a*4.;
-            RFLOAT b = mean_y - a*mean_x;
-            //update bfactor in metadata
-            DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC) += bfac;
+            //consider using b as new per particle scale parameter
+            //DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) * exp(b);
 
 		}
 

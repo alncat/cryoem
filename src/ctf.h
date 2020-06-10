@@ -187,8 +187,65 @@ public:
         return scale * retval;
     }
 
+    /// Compute CTF at (U,V). Continuous frequencies
+    inline RFLOAT getCTFandGrads(RFLOAT X, RFLOAT Y,
+    		bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true) const
+    {
+        RFLOAT u2 = X * X + Y * Y;
+        RFLOAT u = sqrt(u2);
+        RFLOAT u4 = u2 * u2;
+        // if (u2>=ua2) return 0;
+        RFLOAT deltaf = getDeltaF(X, Y);
+        RFLOAT argument = K1 * deltaf * u2 + K2 * u4 - K5;
+        RFLOAT retval;
+        RFLOAT grad;
+        if (do_intact_until_first_peak && ABS(argument) < PI/2.)
+        {
+        	retval = 1.;
+            grad = 0.;
+        }
+        else
+        {
+            retval = -(K3*sin(argument) - Q0*cos(argument)); // Q0 should be positive
+            grad = -(K3*cos(argument) + Q0*sin(argument));
+        }
+        if (do_damping)
+        {
+        	RFLOAT E = exp(K4 * u2); // B-factor decay (K4 = -Bfac/4);
+        	retval *= E;
+        }
+        if (do_abs)
+        {
+        	retval = ABS(retval);
+        }
+        else if (do_only_flip_phases)
+        {
+        	retval = (retval < 0.) ? -1. : 1.;
+        }
+        return scale * retval;
+    }
     /// Compute Deltaf at a given direction
     inline RFLOAT getDeltaF(RFLOAT X, RFLOAT Y) const
+    {
+        if (ABS(X) < XMIPP_EQUAL_ACCURACY &&
+            ABS(Y) < XMIPP_EQUAL_ACCURACY)
+            return 0;
+
+        RFLOAT ellipsoid_ang = atan2(Y, X) - rad_azimuth;
+        /*
+        * For a derivation of this formulae confer
+        * Principles of Electron Optics page 1380
+        * in particular term defocus and twofold axial astigmatism
+        * take into account that a1 and a2 are the coefficient
+        * of the zernike polynomials difference of defocus at 0
+        * and at 45 degrees. In this case a2=0
+        */
+        RFLOAT cos_ellipsoid_ang_2 = cos(2*ellipsoid_ang);
+        return (defocus_average + defocus_deviation*cos_ellipsoid_ang_2);
+
+    }
+    /// Compute Deltaf at a given direction
+    inline RFLOAT getDeltaFandGrads(RFLOAT X, RFLOAT Y) const
     {
         if (ABS(X) < XMIPP_EQUAL_ACCURACY &&
             ABS(Y) < XMIPP_EQUAL_ACCURACY)
