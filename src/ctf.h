@@ -188,40 +188,53 @@ public:
     }
 
     /// Compute CTF at (U,V). Continuous frequencies
-    inline RFLOAT getCTFandGrads(RFLOAT X, RFLOAT Y,
+    inline RFLOAT getCTFandGrads(RFLOAT X, RFLOAT Y, RFLOAT& grad_u, RFLOAT& grad_v,
     		bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true) const
     {
         RFLOAT u2 = X * X + Y * Y;
         RFLOAT u = sqrt(u2);
         RFLOAT u4 = u2 * u2;
         // if (u2>=ua2) return 0;
-        RFLOAT deltaf = getDeltaF(X, Y);
+        RFLOAT deltaf = getDeltaFandGrads(X, Y, grad_u, grad_v);
         RFLOAT argument = K1 * deltaf * u2 + K2 * u4 - K5;
         RFLOAT retval;
         RFLOAT grad;
         if (do_intact_until_first_peak && ABS(argument) < PI/2.)
         {
         	retval = 1.;
-            grad = 0.;
+            grad_u = 0.;
+            grad_v = 0.;
         }
         else
         {
             retval = -(K3*sin(argument) - Q0*cos(argument)); // Q0 should be positive
             grad = -(K3*cos(argument) + Q0*sin(argument));
+            grad_u *= grad;
+            grad_v *= grad;
         }
         if (do_damping)
         {
         	RFLOAT E = exp(K4 * u2); // B-factor decay (K4 = -Bfac/4);
         	retval *= E;
+            grad_u *= E;
+            grad_v *= E;
         }
         if (do_abs)
         {
+            if(retval < 0.) {
+                grad_u *= -grad;
+                grad_v *= -grad;
+            }
         	retval = ABS(retval);
         }
         else if (do_only_flip_phases)
         {
         	retval = (retval < 0.) ? -1. : 1.;
+            grad_u = 0.;
+            grad_v = 0.;
         }
+        grad_u *= scale;
+        grad_v *= scale;
         return scale * retval;
     }
     /// Compute Deltaf at a given direction
@@ -245,7 +258,7 @@ public:
 
     }
     /// Compute Deltaf at a given direction
-    inline RFLOAT getDeltaFandGrads(RFLOAT X, RFLOAT Y) const
+    inline RFLOAT getDeltaFandGrads(RFLOAT X, RFLOAT Y, RFLOAT& grad_u, RFLOAT& grad_v) const
     {
         if (ABS(X) < XMIPP_EQUAL_ACCURACY &&
             ABS(Y) < XMIPP_EQUAL_ACCURACY)
@@ -261,6 +274,8 @@ public:
         * and at 45 degrees. In this case a2=0
         */
         RFLOAT cos_ellipsoid_ang_2 = cos(2*ellipsoid_ang);
+        grad_u = 0.5 + 0.5*cos_ellipsoid_ang_2;
+        grad_v = 0.5 - 0.5*cos_ellipsoid_ang_2;
         return (defocus_average + defocus_deviation*cos_ellipsoid_ang_2);
 
     }
