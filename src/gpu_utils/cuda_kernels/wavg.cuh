@@ -136,12 +136,13 @@ __global__ void cuda_kernel_wavg(
 					XFLOAT diff_real = ref_real - trans_real;
 					XFLOAT diff_imag = ref_imag - trans_imag;
 
-					s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
-
+					//s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
+                    s_wdiff2s_parts[tid] += weight;
 					s_sumXA[tid] +=  weight * ( ref_real * trans_real + ref_imag * trans_imag);
 					s_sumA2[tid] +=  weight * ( ref_real*ref_real  +  ref_imag*ref_imag );
 				}
 			}
+            s_wdiff2s_parts[tid] *= (img_real*img_real + img_imag*img_imag);
 
 			cuda_atomic_add(&g_wdiff2s_XA[pixel], s_sumXA[tid]);
 			cuda_atomic_add(&g_wdiff2s_AA[pixel], s_sumA2[tid]);
