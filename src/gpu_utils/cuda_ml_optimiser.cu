@@ -2785,14 +2785,21 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                     //std::cout << MULTIDIM_SIZE(Fctf) << " " << image_size << std::endl;
                     RFLOAT old_defocus_u = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U);
                     RFLOAT old_defocus_v = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V);
+                    RFLOAT old_defocus_a = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE);
+                    //we will use radian for angle during optimization, and convert it to degree when setting initial values for ctf object
+                    old_defocus_a = DEG2RAD(old_defocus_a);
                     RFLOAT defocus_u = old_defocus_u;
                     RFLOAT defocus_v = old_defocus_v;
-                    MultidimArray<RFLOAT> grad_u, grad_v, hessian_u, hessian_v, hessian_uv;
+                    RFLOAT defocus_a = old_defocus_a;
+                    MultidimArray<RFLOAT> grad_u, grad_v, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv;
                     grad_u.resize(Fctf);
                     grad_v.resize(Fctf);
                     hessian_u.resize(Fctf);
                     hessian_v.resize(Fctf);
                     hessian_uv.resize(Fctf);
+                    hessian_t.resize(Fctf);
+                    hessian_tu.resize(Fctf);
+                    hessian_tv.resize(Fctf);
 
                     //calculate current correlation before optimization
                     RFLOAT old_correlation = 0.;
@@ -2808,7 +2815,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                     for(int idescent = 0; idescent < 2; idescent++){
                         new_ctf.setValues(defocus_u,
                                 defocus_v,
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
+                                RAD2DEG(old_defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
                                 DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
                                 DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
                                 DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
@@ -2818,10 +2825,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         
                         //all gradients and hessian are fftw centered
                         //new_ctf.getFftwImage(Fctf, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size, baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
-                        new_ctf.getFftwImageandGrads(Fctf, grad_u, grad_v, hessian_u, hessian_v, hessian_uv, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
+                        new_ctf.getFftwImageandGrads(Fctf, grad_u, grad_v, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv, 
+                                baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
                                 baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
                         //simply loop through the array to get gradients
-                        RFLOAT gu = 0., gv = 0., hu = 0., hv = 0., huv = 0.;
+                        RFLOAT gu = 0., gv = 0., hu = 0., hv = 0., huv = 0., ht = 0., htu = 0., htv = 0.;
                         //do gradient descent only when fsc(ori_size/5) > 0.5
                         //for (long int j = 0; j < image_size; j++){
                         //    int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
@@ -2861,6 +2869,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                                 hu += -wdiff2s_XA[j]*(scale*hessian_u.data[j]);
                                 hv += -wdiff2s_XA[j]*(scale*hessian_v.data[j]);
                                 huv += -wdiff2s_XA[j]*(scale*hessian_uv.data[j]);
+                                ht += -wdiff2s_XA[j]*(scale*hessian_t.data[j]);
+                                htu += -wdiff2s_XA[j]*(scale*hessian_tu.data[j]);
+                                htv += -wdiff2s_XA[j]*(scale*hessian_tv.data[j]);
 
                                 //gu += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_u.data[j];
                                 //gv += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_v.data[j];
@@ -2876,10 +2887,58 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         RFLOAT l2 = 0.5*t - sqrt(t*t*0.25 - deta);
                         RFLOAT lmax = std::max(abs(l1), abs(l2));
                         RFLOAT lmin = std::min(abs(l1), abs(l2));
-                        gu += lmax*(defocus_u - old_defocus_u);
-                        gv += lmax*(defocus_v - old_defocus_v);
+                        gu += (lmax+lmin)*(defocus_u - old_defocus_u);
+                        gv += (lmax+lmin)*(defocus_v - old_defocus_v);
+                        hu += (lmax+lmin);
+                        hv += (lmax+lmin);
+                        deta = hu*hv - huv*huv;
                         RFLOAT du = (hv*gu - huv*gv)/deta;
                         RFLOAT dv = (-huv*gu + hu*gv)/deta;
+                        l1 += (lmax+lmin);
+                        l2 += (lmax+lmin);
+                        lmax = std::max(abs(l1), abs(l2));
+                        lmin = std::min(abs(l1), abs(l2));
+
+                        //calculate eigen values for 3x3 matrix
+                        //#define M_SQR(x) ((x)*(x))
+                        //#define M_SQRT3    1.73205080756887729352744634151   // sqrt(3)
+
+                        //double m, c1, c0;
+                        //double A[3][3], w[3];
+                        //A[0][0] = hu, A[0][1] = huv, A[0][2] = htu;
+                        //A[1][0] = huv, A[1][1] = hv, A[1][2] = htv;
+                        //A[2][0] = htu, A[2][1] = htv, A[2][2] = ht;
+
+                        //// Determine coefficients of characteristic poynomial. We write
+                        ////       | a   d   f  |
+                        ////  A =  | d*  b   e  |
+                        ////       | f*  e*  c  |
+                        //double de = A[0][1] * A[1][2];                                    // d * e
+                        //double dd = M_SQR(A[0][1]);                                         // d^2
+                        //double ee = M_SQR(A[1][2]);                                         // e^2
+                        //double ff = M_SQR(A[0][2]);                                         // f^2
+                        //m  = A[0][0] + A[1][1] + A[2][2];
+                        //c1 = (A[0][0]*A[1][1] + A[0][0]*A[2][2] + A[1][1]*A[2][2])        // a*b + a*c + b*c - d^2 - e^2 - f^2
+                        //    - (dd + ee + ff);
+                        //c0 = A[2][2]*dd + A[0][0]*ee + A[1][1]*ff - A[0][0]*A[1][1]*A[2][2]
+                        //    - 2.0 * A[0][2]*de;                                     // c*d^2 + a*e^2 + b*f^2 - a*b*c - 2*f*d*e)
+
+                        //double p, sqrt_p, q, c, s, phi;
+                        //p = M_SQR(m) - 3.0*c1;
+                        //q = m*(p - (3.0/2.0)*c1) - (27.0/2.0)*c0;
+                        //sqrt_p = sqrt(fabs(p));
+
+                        //phi = 27.0 * ( 0.25*M_SQR(c1)*(p - c1) + c0*(q + 27.0/4.0*c0));
+                        //phi = (1.0/3.0) * atan2(sqrt(fabs(phi)), q);
+
+                        //c = sqrt_p*cos(phi);
+                        //s = (1.0/M_SQRT3)*sqrt_p*sin(phi);
+
+                        //w[1]  = (1.0/3.0)*(m - c);
+                        //w[2]  = w[1] + s;
+                        //w[0]  = w[1] + c;
+                        //w[1] -= s;
+                                                
 
                         if(lmax > 5.*lmin) {
                             if(lmax != l1 && lmax != l2) lmax = -lmax;
@@ -2887,8 +2946,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             du = ((hv+lmax)*gu - huv*gv)/deta;
                             dv = (-huv*gu + (hu+lmax)*gv)/deta;
                         }
-                        du = 0.1*du;//gu/l1;
-                        dv = 0.1*dv;//gv/l1;
+                        du = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*du;//gu/l1;
+                        dv = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dv;//gv/l1;
                         if(isnan(old_correlation)) {
                             std::cout << "corr: " << old_correlation << " gu " << gu << " gv " << gv;
                             std::cout << " hu, hv " << hu << " " << hv << " huv: " << huv;

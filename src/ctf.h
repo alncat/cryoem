@@ -189,13 +189,13 @@ public:
 
     /// Compute CTF at (U,V). Continuous frequencies
     inline RFLOAT getCTFandGrads(RFLOAT X, RFLOAT Y, RFLOAT& grad_u, RFLOAT& grad_v, RFLOAT& hessian_u, RFLOAT& hessian_v, RFLOAT& hessian_uv,
-    		bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true) const
+    		RFLOAT& hessian_t, RFLOAT& hessian_tu, RFLOAT& hessian_tv, bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true) const
     {
         RFLOAT u2 = X * X + Y * Y;
         RFLOAT u = sqrt(u2);
         RFLOAT u4 = u2 * u2;
         // if (u2>=ua2) return 0;
-        RFLOAT grad_t, hess_t, hess_tu, hessian_t, hessian_tu, hessian_tv;
+        RFLOAT grad_t, hess_t, hess_tu;//, hessian_t, hessian_tu, hessian_tv;
         RFLOAT deltaf = getDeltaFandGrads(X, Y, grad_u, grad_v, grad_t, hess_t, hess_tu);
         RFLOAT argument = K1 * deltaf * u2 + K2 * u4 - K5;
         grad_u *= K1*u2;
@@ -211,6 +211,9 @@ public:
             hessian_u = 0.;
             hessian_v = 0.;
             hessian_uv = 0.;
+            hessian_t = 0.;
+            hessian_tu = 0.;
+            hessian_tv = 0.;
         }
         else
         {
@@ -220,8 +223,8 @@ public:
             RFLOAT hessian = -retval;//K3*sin(argument) - Q0*cos(argument);
             hessian_u = hessian*grad_u*grad_u;
             hessian_v = hessian*grad_v*grad_v;
-            hessian_t = hessian*grad_t*grad_t + grad*hess_t*K1*u2;
             hessian_uv = hessian*grad_u*grad_v;
+            hessian_t = hessian*grad_t*grad_t + grad*hess_t*K1*u2;
             hessian_tu = hessian*grad_u*grad_t + grad*K1*u2*hess_tu;
             hessian_tv = hessian*grad_v*grad_t - grad*K1*u2*hess_tu;
             grad_u = grad*grad_u;
@@ -334,7 +337,7 @@ public:
     		bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true);
     /// Generate (Fourier-space, i.e. FFTW format) image with all CTF values.
     /// The dimensions of the result array should have been set correctly already
-    void getFftwImageandGrads(MultidimArray < RFLOAT > &result, MultidimArray<RFLOAT>& grad_u, MultidimArray<RFLOAT>& grad_v, MultidimArray<RFLOAT>& hessian_u, MultidimArray<RFLOAT>& hessian_v, MultidimArray<RFLOAT>& hessian_uv, int orixdim, int oriydim, RFLOAT angpix,
+    void getFftwImageandGrads(MultidimArray < RFLOAT > &result, MultidimArray<RFLOAT>& grad_u, MultidimArray<RFLOAT>& grad_v, MultidimArray<RFLOAT>& hessian_u, MultidimArray<RFLOAT>& hessian_v, MultidimArray<RFLOAT>& hessian_uv, MultidimArray<RFLOAT>& hessian_t, MultidimArray<RFLOAT>& hessian_tu, MultidimArray<RFLOAT>& hessian_tv, int orixdim, int oriydim, RFLOAT angpix,
     		bool do_abs = false, bool do_only_flip_phases = false, bool do_intact_until_first_peak = false, bool do_damping = true);
 
     /// Generate a centered image (with hermitian symmetry)

@@ -204,7 +204,7 @@ void CTF::getFftwImage(MultidimArray<RFLOAT> &result, int orixdim, int oriydim, 
 	}
 }
 
-void CTF::getFftwImageandGrads(MultidimArray<RFLOAT> &result, MultidimArray<RFLOAT>& grad_u, MultidimArray<RFLOAT>& grad_v, MultidimArray<RFLOAT>& hessian_u, MultidimArray<RFLOAT>& hessian_v, MultidimArray<RFLOAT>& hessian_uv, int orixdim, int oriydim, RFLOAT angpix,
+void CTF::getFftwImageandGrads(MultidimArray<RFLOAT> &result, MultidimArray<RFLOAT>& grad_u, MultidimArray<RFLOAT>& grad_v, MultidimArray<RFLOAT>& hessian_u, MultidimArray<RFLOAT>& hessian_v, MultidimArray<RFLOAT>& hessian_uv, MultidimArray<RFLOAT>& hessian_t, MultidimArray<RFLOAT>& hessian_tu, MultidimArray<RFLOAT>& hessian_tv, int orixdim, int oriydim, RFLOAT angpix,
 		    		bool do_abs, bool do_only_flip_phases, bool do_intact_until_first_peak, bool do_damping)
 {
 
@@ -214,14 +214,17 @@ void CTF::getFftwImageandGrads(MultidimArray<RFLOAT> &result, MultidimArray<RFLO
 	{
 		RFLOAT x = (RFLOAT)jp / xs;
 		RFLOAT y = (RFLOAT)ip / ys;
-        RFLOAT this_grad_u, this_grad_v, this_hessian_u, this_hessian_v, this_hessian_uv;
-		DIRECT_A2D_ELEM(result, i, j) = getCTFandGrads(x, y, this_grad_u, this_grad_v, this_hessian_u, this_hessian_v, this_hessian_uv, do_abs, do_only_flip_phases, do_intact_until_first_peak, do_damping);
+        RFLOAT this_grad_u, this_grad_v, this_hessian_u, this_hessian_v, this_hessian_uv, this_hessian_t, this_hessian_tu, this_hessian_tv;
+		DIRECT_A2D_ELEM(result, i, j) = getCTFandGrads(x, y, this_grad_u, this_grad_v, this_hessian_u, this_hessian_v, this_hessian_uv, this_hessian_t, this_hessian_tu, this_hessian_tv, do_abs, do_only_flip_phases, do_intact_until_first_peak, do_damping);
         //setting grads
         DIRECT_A2D_ELEM(grad_u, i, j) = this_grad_u;
         DIRECT_A2D_ELEM(grad_v, i, j) = this_grad_v;
         DIRECT_A2D_ELEM(hessian_u, i, j) = this_hessian_u;
         DIRECT_A2D_ELEM(hessian_v, i, j) = this_hessian_v;
         DIRECT_A2D_ELEM(hessian_uv, i, j) = this_hessian_uv;
+        DIRECT_A2D_ELEM(hessian_t, i, j) = this_hessian_t;
+        DIRECT_A2D_ELEM(hessian_tu, i, j) = this_hessian_tu;
+        DIRECT_A2D_ELEM(hessian_tv, i, j) = this_hessian_tv;
 	}
 }
 
