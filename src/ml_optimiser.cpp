@@ -8168,6 +8168,7 @@ void MlOptimiser::setMetaDataSubset(int first_ori_particle_id, int last_ori_part
             //set defocus
             mydata.MDimg.setValue(EMDL_CTF_DEFOCUSU, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_U), part_id);
             mydata.MDimg.setValue(EMDL_CTF_DEFOCUSV, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_V), part_id);
+            mydata.MDimg.setValue(EMDL_CTF_DEFOCUS_ANGLE, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_ANGLE), part_id);
 
 			// For the moment, CTF, prior and transformation matrix info is NOT updated...
 			RFLOAT prior_x = DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_XOFF_PRIOR);
