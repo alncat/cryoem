@@ -2883,7 +2883,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             }
                         }
                         //now do a newton raphson descent
-                        if(false){
+                        if(true){
                             RFLOAT deta = hu*hv - huv*huv;
                             RFLOAT t= (hu + hv);
                             RFLOAT l1 = 0.5*t + sqrt(t*t*0.25 - deta);
@@ -2928,7 +2928,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             defocus_v -= dv;
                         }
                         //update u and angle
-                        if(true){
+                        if(false){
                             RFLOAT deta = hu*ht - htu*htu;
                             RFLOAT t= (hu + ht);
                             RFLOAT l1 = 0.5*t + sqrt(t*t*0.25 - deta);
@@ -3022,8 +3022,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             l2 += (1.2*lmax);
                             l3 += (1.2*lmax);
                             //regularze hessian by adding a diagonal matrix
-                            double a = A[0][0] + 1.2*lmax, b = A[0][1],               //c = A[0][2],
-                                   d = A[1][0],               e = A[1][1] + 1.2*lmax, f = A[1][2],
+                            double a = A[0][0] + 1.2*lmax,    b = A[0][1],               //c = A[0][2],
+                                   d = A[1][0],               e = A[1][1] + 1.2*lmax,    f = A[1][2],
                                    g = A[2][0],               h = A[2][1],               i = A[2][2] + 1.2*lmax;
                             c = A[0][2];
                             lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
@@ -3040,9 +3040,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             //    l3 += lmax;
                             //}
 
-                            double ca = e*i - f*h, cd = -(b*i - c*h), cg = (b*f - c*e),
-                                   cb = -(d*i - f*g), ce = (a*i - c*g), ch = -(a*f - c*d),
-                                   cc = (d*h - e*g), cf = -(a*h - b*g), ci = (a*e - b*d);
+                            double ca = e*i - f*h,    cd = -(b*i - c*h), cg = (b*f - c*e),
+                                   cb = -(d*i - f*g), ce = (a*i - c*g),  ch = -(a*f - c*d),
+                                   cc = (d*h - e*g),  cf = -(a*h - b*g), ci = (a*e - b*d);
                             double deta = a*ca + b*cb + c*cc;
                             if(fabs(l1*l2*l3/deta - 1.) > 1e-5) 
                                 std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
@@ -3074,8 +3074,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             defocus_u -= du;
                             defocus_v -= dv;
                             defocus_a -= dt;
+                            //if(defocus_u < defocus_v) {
+                            //    std::swap(defocus_u, defocus_v);
+                            //}
 
-                        } //gradient descent block
+                        } //u, v, angle, updates block
                     }//idescent
                     //update ctf and copy it to device
                     new_ctf.setValues(defocus_u,
