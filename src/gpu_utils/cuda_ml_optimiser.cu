@@ -2927,45 +2927,17 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             defocus_u -= du;
                             defocus_v -= dv;
                         }
-                        //update u and angle
+                        //update angle
                         if(false){
-                            RFLOAT deta = hu*ht - htu*htu;
-                            RFLOAT t= (hu + ht);
-                            RFLOAT l1 = 0.5*t + sqrt(t*t*0.25 - deta);
-                            RFLOAT l2 = 0.5*t - sqrt(t*t*0.25 - deta);
-                            RFLOAT lmax = std::max(fabs(l1), fabs(l2));
-                            RFLOAT lmin = std::min(fabs(l1), fabs(l2));
-                            //if(lmax > 5.*lmin){
-                            gu += (lmax+0.2*lmax)*(defocus_u - old_defocus_u);
-                            gt += (lmax+0.2*lmax)*(defocus_a - old_defocus_a);
-                            hu += (lmax+0.2*lmax);
-                            ht += (lmax+0.2*lmax);
-                            //} //else {
-                            //    gu += (lmin)*(defocus_u - old_defocus_u);
-                            //    gv += (lmin)*(defocus_v - old_defocus_v);
-                            //    hu += (lmin);
-                            //    hv += (lmin);
-                            //}
-                            deta = hu*ht - htu*htu;
-                            RFLOAT du = (ht*gu - htu*gt)/deta;
-                            RFLOAT dt = (-htu*gu + hu*gt)/deta;
-                            l1 += (lmax+0.2*lmax);
-                            l2 += (lmax+0.2*lmax);
-                            lmax = std::max(fabs(l1), fabs(l2));
-                            lmin = std::min(fabs(l1), fabs(l2));
+                            RFLOAT lmax = fabs(ht);
+                            gt += (lmax+lmax)*(defocus_a - old_defocus_a);
+                            ht += (lmax+lmax);
+                            RFLOAT dt = gt/ht;
 
-                            //if(lmax > 5.*lmin) {
-                            //    //std::cout << abs(l1) << " " << abs(l2) << std::endl;
-                            //    if(lmax != l1 && lmax != l2) lmax = -lmax;
-                            //    deta = (hu+lmax)*(hv+lmax) - huv*huv;
-                            //    du = ((hv+lmax)*gu - huv*gv)/deta;
-                            //    dv = (-huv*gu + (hu+lmax)*gv)/deta;
-                            //}
+                            //if(ipart == 0) 
+                            //    std::cout << "defocus_a: " << defocus_a << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
+                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt/(fabs(defocus_u) + fabs(defocus_v));//gv/l1;
 
-                            du = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*du;//gu/l1;
-                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt;//gv/l1;
-
-                            defocus_u -= du;
                             defocus_a -= dt;
                         }
 
@@ -3018,16 +2990,16 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             gv += (1.2*lmax)*(defocus_v - old_defocus_v);
                             gt += (1.2*lmax)*(defocus_a - old_defocus_a);
                             //compute regularized inverse hessian
-                            l1 += (1.2*lmax);
-                            l2 += (1.2*lmax);
-                            l3 += (1.2*lmax);
+                            //l1 += (1.2*lmax);
+                            //l2 += (1.2*lmax);
+                            //l3 += (1.2*lmax);
                             //regularze hessian by adding a diagonal matrix
                             double a = A[0][0] + 1.2*lmax,    b = A[0][1],               //c = A[0][2],
                                    d = A[1][0],               e = A[1][1] + 1.2*lmax,    f = A[1][2],
                                    g = A[2][0],               h = A[2][1],               i = A[2][2] + 1.2*lmax;
                             c = A[0][2];
-                            lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
-                            lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
+                            //lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
+                            //lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
 
                             //deal with ill-conditioned hessian, now the min eignvalue is at least lmin+lmax
                             //if(lmax > 5.*lmin) {
@@ -3044,20 +3016,27 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                                    cb = -(d*i - f*g), ce = (a*i - c*g),  ch = -(a*f - c*d),
                                    cc = (d*h - e*g),  cf = -(a*h - b*g), ci = (a*e - b*d);
                             double deta = a*ca + b*cb + c*cc;
-                            if(fabs(l1*l2*l3/deta - 1.) > 1e-5) 
+                            //if(fabs(l1*l2*l3/deta - 1.) > 1e-5) 
+                            //    std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
+                            //check inverse
+                            if(fabs((d*cd + e*ce + f*cf)/deta - 1.) > 1e-5 || fabs((g*cg + h*ch + i*ci)/deta - 1.) > 1e-5)
                                 std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
                             RFLOAT du = (ca*gu + cd*gv + cg*gt)/deta;
                             RFLOAT dv = (cb*gu + ce*gv + ch*gt)/deta;
                             RFLOAT dt = (cc*gu + cf*gv + ci*gt)/deta;
+                            //if(ipart == 0){
+                            //    std::cout << " u: " << defocus_u << " v: " << defocus_v << " a: " << defocus_a;
+                            //    std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a << std::endl;
+                            //}
 
-                            du = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*du;//gu/l1;
-                            dv = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dv;//gv/l1;
-                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt;
+                            du = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*du;//gu/l1;
+                            dv = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dv;//gv/l1;
+                            dt = 0.5*(du/defocus_u + dv/defocus_v)*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dt;
                             if(isnan(old_correlation)) {
                                 std::cout << "corr: " << old_correlation << " gu " << gu << " gv " << gv;
                                 std::cout << " hu, hv " << hu << " " << hv << " huv: " << huv;
                                 std::cout << " l1/l2 " << l1/l2;
-                                std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v ;//<< " image_size:" << image_size - MULTIDIM_SIZE(op.Fimgs[ipart]);
+                                std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a;//<< " image_size:" << image_size - MULTIDIM_SIZE(op.Fimgs[ipart]);
                                 std::cout << std::endl;
                                 //std::cout << " max_r: " << cudaMLO->devBundle->cudaBackprojectors[exp_iclass].maxR - op.local_Minvsigma2s[0].xdim+1;
                                 //std::cout << " pmax_r: " << projKernel.maxR - op.local_Minvsigma2s[0].xdim + 1;
