@@ -3316,6 +3316,7 @@ void MlOptimiserMpi::iterate()
 					{
                         //if(node->rank == 1)
                         //    std::cout << DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) << std::endl;
+                        //    allowing some fluctuation
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.5)//MOD: && fsc05 < 0)
 							fsc05 = i;
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.143)//MOD: < 0.143 && fsc0143 < 0)

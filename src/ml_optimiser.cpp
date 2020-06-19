@@ -4012,7 +4012,7 @@ void MlOptimiser::updateCurrentResolution()
                 int fsc05 = 1;
 				for (ires = 1; ires < mymodel.ori_size/2; ires++)
 				{
-					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) >= 1.)
+					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) >= 1.0)//0.96078)
                         fsc05 = ires;
 						//break;
 				}

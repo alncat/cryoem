@@ -2858,9 +2858,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                                 //aa_norm *= aa_norm;
                                 //RFLOAT scale = ctf_scale*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter,ires));
                                 //scale = 1./scale;
-                                if(isnan(scale) || isnan(Fctf.data[j])) {
-                                    std::cout << idescent << " " << DIRECT_A1D_ELEM(AA_spectrum, ires) << " " << sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires)) << " " << Fctf.data[j] << " " << scale << std::endl;
-                                }
+                                //if(isnan(scale) || isnan(Fctf.data[j])) {
+                                //    std::cout << idescent << " " << DIRECT_A1D_ELEM(AA_spectrum, ires) << " " << sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires)) << " " << Fctf.data[j] << " " << scale << std::endl;
+                                //}
                                 //DIRECT_A1D_ELEM(ctf_spectrum, ires) += Fctf.data[j]*Fctf.data[j];
                                 //RFLOAT ctf_scale3 = ctf_scale2*ctf_scale;
                                 //RFLOAT grad_ctf = (1./ctf_scale - Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j]/(ctf_scale3));
@@ -2891,10 +2891,10 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             RFLOAT lmax = std::max(fabs(l1), fabs(l2));
                             RFLOAT lmin = std::min(fabs(l1), fabs(l2));
                             //if(lmax > 5.*lmin){
-                            gu += (lmax+0.2*lmax)*(defocus_u - old_defocus_u);
-                            gv += (lmax+0.2*lmax)*(defocus_v - old_defocus_v);
-                            hu += (lmax+0.2*lmax);
-                            hv += (lmax+0.2*lmax);
+                            gu += (lmax+0.2*lmax)*(defocus_u - old_defocus_u) + 0.2*lmax*(defocus_u - defocus_v);
+                            gv += (lmax+0.2*lmax)*(defocus_v - old_defocus_v) + 0.2*lmax*(defocus_v - defocus_u);
+                            hu += (lmax+0.2*lmax) + 0.2*lmax;
+                            hv += (lmax+0.2*lmax) + 0.2*lmax;
                             //} //else {
                             //    gu += (lmin)*(defocus_u - old_defocus_u);
                             //    gv += (lmin)*(defocus_v - old_defocus_v);
@@ -2904,8 +2904,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             deta = hu*hv - huv*huv;
                             RFLOAT du = (hv*gu - huv*gv)/deta;
                             RFLOAT dv = (-huv*gu + hu*gv)/deta;
-                            l1 += (lmax+0.2*lmax);
-                            l2 += (lmax+0.2*lmax);
+                            l1 += (lmax+0.2*lmax) + 0.2*lmax;
+                            l2 += (lmax+0.2*lmax) + 0.2*lmax;
                             lmax = std::max(fabs(l1), fabs(l2));
                             lmin = std::min(fabs(l1), fabs(l2));
 
@@ -2932,11 +2932,17 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             RFLOAT lmax = fabs(ht);
                             gt += (lmax+lmax)*(defocus_a - old_defocus_a);
                             ht += (lmax+lmax);
-                            RFLOAT dt = gt/ht;
 
-                            //if(ipart == 0) 
-                            //    std::cout << "defocus_a: " << defocus_a << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
-                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt/(fabs(defocus_u) + fabs(defocus_v));//gv/l1;
+                            RFLOAT dt = gt/ht;
+                            if(isnan(dt)) 
+                                std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
+
+                            if(fabs(ht) < 1.e-5) ht = copysign(1e-5, ht);
+                            dt = gt/ht;
+                            if(isnan(dt)) 
+                                std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
+                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt/(fabs(defocus_u) + fabs(defocus_v) + fabs(defocus_a));//gv/l1;
+                            if(fabs(dt) > 0.002*fabs(defocus_a)) dt = copysign(0.002*defocus_a, dt);
 
                             defocus_a -= dt;
                         }
