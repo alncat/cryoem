@@ -2750,7 +2750,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 wdiff2s_AA.cp_to_host();
 		        wdiff2s_XA.cp_to_host();
                 wdiff2s_sum.cp_to_host();
-                if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], baseMLO->mymodel.ori_size/6) > 1.){
+                if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/4.1)) > 1.){//6))>1.){//4.4) > 1.){
                     MultidimArray<RFLOAT> Fctf;
                     MultidimArray<RFLOAT> AA_spectrum, AA_counter, ctf_spectrum;
                     //Fctfs is fftw centered and has size of image_size
@@ -2891,10 +2891,10 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             RFLOAT lmax = std::max(fabs(l1), fabs(l2));
                             RFLOAT lmin = std::min(fabs(l1), fabs(l2));
                             //if(lmax > 5.*lmin){
-                            gu += (lmax+0.2*lmax)*(defocus_u - old_defocus_u) + 0.2*lmax*(defocus_u - defocus_v);
-                            gv += (lmax+0.2*lmax)*(defocus_v - old_defocus_v) + 0.2*lmax*(defocus_v - defocus_u);
-                            hu += (lmax+0.2*lmax) + 0.2*lmax;
-                            hv += (lmax+0.2*lmax) + 0.2*lmax;
+                            gu += (0.7*lmax+0.0*lmax)*(defocus_u - old_defocus_u) + 0.7*lmax*(defocus_u - defocus_v);
+                            gv += (0.7*lmax+0.0*lmax)*(defocus_v - old_defocus_v) + 0.7*lmax*(defocus_v - defocus_u);
+                            hu += (0.7*lmax+0.0*lmax) + 0.7*lmax;
+                            hv += (0.7*lmax+0.0*lmax) + 0.7*lmax;
                             //} //else {
                             //    gu += (lmin)*(defocus_u - old_defocus_u);
                             //    gv += (lmin)*(defocus_v - old_defocus_v);
