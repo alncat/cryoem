@@ -1559,6 +1559,9 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     // Set Fweight, Fnewweight and Fconv to the right size
     if(do_tv) {
         transformer.setReal(vol_out, nr_threads);
+        //fourier transform on vol_out, now fourier data on Fconv
+        //transformer.FourierTransform();
+
     } else {
         transformer.setReal(vol_out); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
     }
@@ -1760,6 +1763,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //first put data into Fconv, which is the fourier transforms of transformer
         //test conv will store the test data
         MultidimArray<Complex> Ftest_conv(Fconv, true);
+        //move fconv to fdata
+        //MultidimArray<Complex> Fdata(Fconv);
         decenter(data, Fconv, max_r2);
         if(MULTIDIM_SIZE(test_data))
             decenter(test_data, Ftest_conv, max_r2);
@@ -1786,6 +1791,15 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                 normfft = (RFLOAT)(padding_factor * padding_factor * padding_factor * ori_size);
         }
         
+        //now apply twice operator, fconv = 2*fconv - fdata*weight*normfft
+        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
+        //{
+        //    int r2 = kp*kp + ip*ip + jp*jp;
+        //    if(r2 < max_r2) {
+        //        FFTW_ELEM(Fconv, kp, ip, jp) = 2.*FFTW_ELEM(Fconv, kp, ip, jp) - FFTW_ELEM(Fweight, kp, ip, jp)*FFTW_ELEM(Fdata, kp, ip, jp)*normfft;
+        //    }
+        //}
+
         //FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Fweight)
 		//{
 		//	DIRECT_MULTIDIM_ELEM(Fweight, n) /= normalise;
@@ -1798,7 +1812,7 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //save Fconv before masking
         if(masking) fsc143 = sqrt(max_r2)/2. - 1.;
         MultidimArray<Complex> Fdata(Fconv);
-
+        
         //check average scale of Fconv
         FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
  		{
