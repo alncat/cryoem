@@ -12,7 +12,7 @@ research group of Jianpeng Ma in Baylor College of Medicine. This implementation
 OPUS-SSRI can be installed by using the docker command below.
 
 ```
-docker pull mormed/relion-luo:200309
+docker pull alncat/opus-ssri:first
 ```
 We can then run the program in the docker image. 
 You can later keep the source in docker image up to date by replacing the /relion-luo/src directory with the src in this repository and recompling the whole program using make in /relion-luo/build. The updated program now can be found in /relion-luo/build/bin.
@@ -37,8 +37,8 @@ Option | Function
 --tv |toggle on the OPUS-SSRI 3D refinement protocol
 --tv_eps |the ![\epsilon](https://render.githubusercontent.com/render/math?math=%5Cepsilon) in the above equation
 --tv_epsp |the ![\epsilon^'](https://render.githubusercontent.com/render/math?math=%5Cepsilon%5E') in the above equation
---tv_alpha |propotional to the ![\alpha](https://render.githubusercontent.com/render/math?math=%5Calpha) in the above equation
---tv_beta |propotional to the ![\beta](https://render.githubusercontent.com/render/math?math=%5Cbeta) in the above equation
+--tv_alpha |propotional to the ![\alpha\epsilon](https://render.githubusercontent.com/render/math?math=%5Calpha) in the above equation
+--tv_beta |propotional to the ![\beta\epsilon^'](https://render.githubusercontent.com/render/math?math=%5Cbeta) in the above equation
 --tv_weight |propotional to the ![\gamma](https://render.githubusercontent.com/render/math?math=%5Cgamma) in the above equation
 --tv_iters |the number of iterations of the optimization algorithm
 --tv_lr |propotional to the learning rate of the optimization algorithm
@@ -54,3 +54,24 @@ mpiexec -n 3 /relion-luo/build/bin/relion_refine_mpi --o /output-folder --i part
 --split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4 
 
 ```
+## Build instruction (Under development!!!)
+To build this program from scratch on a ubuntu 16.04 machine, we can first create a build directory. You need to have a cmake with version above 3.15.2, a cuda 10.1, cudnn and latest version of libtorch. You also need to have an fftw library with threads. In case of missing reference to cublas, we can install cublas and link it to the directory of cuda 10.1 manually by executing 
+```
+sudo ln -s -T /usr/lib/x86_64-linux-gnu/libcublas.so /usr/local/cuda-10.1/lib64/libcublas.so
+```
+We then change to the build directory. Inside the build directory, execute
+```
+/usr/local/bin/cmake -DCMAKE_INSTALL_PREFIX=/fullpathof/build/bin/ -DCMAKE_BUILD_TYPE=relwithdebinfo -DCMAKE_C_COMPILER=gcc-5 -DCMAKE_CXX_COMPILER=g++-5 -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-10.1 -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/x86_64-linux-gnu -DCMAKE_PREFIX_PATH=/fullpathof/libtorch/share/cmake/Torch ..
+```
+Remeber to substitute the fullpathof with your complete path.
+After this, execute
+```
+make
+```
+then
+```
+make install
+```
+You can have program inside build/bin .
+
+The reconstructed results of OPUS-SSRI for some systems can be accessed at https://www.dropbox.com/sh/8ln07s9esmnnvhe/AADRk4UddUyfTFTa0KFK1NvYa?dl=0 .
