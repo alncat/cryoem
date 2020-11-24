@@ -67,10 +67,10 @@ else()
 	string( TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER )
 endif()
 
-SET(CMAKE_C_COMPILER "${CMAKE_C_COMPILER} -g")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g")
+SET(CMAKE_C_COMPILER "${CMAKE_C_COMPILER} -g -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g -fPIC")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g")
-SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -g")
+SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14 -g")
 
 # ------------------OPTIONS WHICH ARE NEEDED TO SET BUILD-TYPES (COMPILATION FLAGS)--
 # ------------------------------------------------------------------------CUDA-ARCH--
@@ -238,6 +238,22 @@ endif(NOT FORCE_OWN_FFTW)
 if(NOT FFTW_FOUND)
 	include(${CMAKE_SOURCE_DIR}/cmake/BuildFFTW.cmake)
 endif(NOT FFTW_FOUND)
+
+#pytorch
+#if(NOT Torch_FOUND)
+#    #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
+#    find_package(Torch REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../libtorch")
+#endif()
+
+#tinydnn
+if(NOT tinydnn_FOUND)
+    find_package(tinydnn REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../tiny-dnn")
+endif()
+
+#if(Torch_FOUND)
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+#    SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} ${TORCH_CXX_FLAGS}")
+#endif()
 
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(sincos    math.h   HAVE_SINCOS)

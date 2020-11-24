@@ -1559,8 +1559,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
     // Set Fweight, Fnewweight and Fconv to the right size
     if(do_tv) {
         transformer.setReal(vol_out, nr_threads);
-        //fourier transform on vol_out, now fourier data on Fconv
-        //transformer.FourierTransform();
+        //fourier transform on vol_out, now store fourier transform of vk on Fconv
+        transformer.FourierTransform();
 
     } else {
         transformer.setReal(vol_out); // Fake set real. 1. Allocate space for Fconv 2. calculate plans.
@@ -1763,8 +1763,8 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
         //first put data into Fconv, which is the fourier transforms of transformer
         //test conv will store the test data
         MultidimArray<Complex> Ftest_conv(Fconv, true);
-        //move fconv to fdata
-        //MultidimArray<Complex> Fdata(Fconv);
+        //copy fourier transform of vol_out to fdata, then move data to Fconv
+        MultidimArray<Complex> Fdata(Fconv);
         decenter(data, Fconv, max_r2);
         if(MULTIDIM_SIZE(test_data))
             decenter(test_data, Ftest_conv, max_r2);
@@ -1791,49 +1791,67 @@ void BackProjector::reconstruct(MultidimArray<RFLOAT> &vol_out,
                 normfft = (RFLOAT)(padding_factor * padding_factor * padding_factor * ori_size);
         }
         
-        //now apply twice operator, fconv = 2*fconv - fdata*weight*normfft
-        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
-        //{
-        //    int r2 = kp*kp + ip*ip + jp*jp;
-        //    if(r2 < max_r2) {
-        //        FFTW_ELEM(Fconv, kp, ip, jp) = 2.*FFTW_ELEM(Fconv, kp, ip, jp) - FFTW_ELEM(Fweight, kp, ip, jp)*FFTW_ELEM(Fdata, kp, ip, jp)*normfft;
-        //    }
-        //}
-
+        
         //FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Fweight)
 		//{
 		//	DIRECT_MULTIDIM_ELEM(Fweight, n) /= normalise;
         //    DIRECT_MULTIDIM_ELEM(Fconv, n) /= normalise;
 		//}
         RFLOAT avg_Fconv = 0.;
+        RFLOAT avg_Fdiff = 0.;
         RFLOAT counter = 0.;
         //turn on masking when no other half
         bool masking = !update_tau2_with_fsc || is_whole_instead_of_half;
         //save Fconv before masking
         if(masking) fsc143 = sqrt(max_r2)/2. - 1.;
-        MultidimArray<Complex> Fdata(Fconv);
-        
-        //check average scale of Fconv
+        //MultidimArray<Complex> Fdata(Fconv);
+        //now apply twicing operator, fconv = 2*fconv - fdata*weight*normfft
         FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
- 		{
-			int r2 = kp * kp + ip * ip + jp * jp;
-            //mask before inverse fourier transform
-            if(masking) FFTW_ELEM(Fconv, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
-			if (r2 <= 4*fsc143*fsc143)
-            {
-                //FFTW_ELEM(Fconv, kp, ip, jp) /= normfft;
-                if(FFTW_ELEM(Fweight, kp, ip, jp) < 1.) continue;
-                RFLOAT real = FFTW_ELEM(Fconv, kp, ip, jp).real/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
-                RFLOAT imag = FFTW_ELEM(Fconv, kp, ip, jp).imag/(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
-                //avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
-                //avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
-                avg_Fconv += (real*real + imag*imag)*FFTW_ELEM(Fweight, kp, ip, jp)*normfft;
+        {
+            int r2 = kp*kp + ip*ip + jp*jp;
+            //if(masking) {
+            //    FFTW_ELEM(Fconv, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
+            //    FFTW_ELEM(Fdata, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
+            //}
+            if(r2 < max_r2) {
+                Complex tmp = FFTW_ELEM(Fconv, kp, ip, jp);
+                Complex tmpd = FFTW_ELEM(Fweight, kp, ip, jp)*FFTW_ELEM(Fdata, kp, ip, jp)*normfft;
+                FFTW_ELEM(Fconv, kp, ip, jp) = tmp ;//+ 0.1*tv_weight*(tmp - tmpd);
+                avg_Fdiff += (tmp.real - tmpd.real)*(tmp.real - tmpd.real) + (tmp.imag - tmpd.imag)*(tmp.imag - tmpd.imag);
+                avg_Fconv += tmp.real*tmp.real + tmp.imag*tmp.imag;
                 counter += 1.;
+                //reset Fdata to data
+                FFTW_ELEM(Fdata, kp, ip, jp) = tmp;
             }
+            if(masking) FFTW_ELEM(Fconv, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
         }
-        //avg_Fweight /= MULTIDIM_SIZE(Fweight);
+        avg_Fdiff /= counter;
         avg_Fconv /= counter;
+        std::cout << "avg_Fdiff: " << sqrt(avg_Fdiff/avg_Fconv) << " ";
+        //avg_Fconv = 0., counter = 0;
+        //check average scale of Fconv
+        //FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight)
+ 		//{
+		//	int r2 = kp * kp + ip * ip + jp * jp;
+        //    //mask before inverse fourier transform
+        //    if(masking) FFTW_ELEM(Fconv, kp, ip, jp) *= FFTW_ELEM(rand_mask, kp, ip, jp);
+		//	if (r2 <= 4*fsc143*fsc143)
+        //    {
+        //        //FFTW_ELEM(Fconv, kp, ip, jp) /= normfft;
+        //        if(FFTW_ELEM(Fweight, kp, ip, jp) < 1.) continue;
+        //        RFLOAT real = FFTW_ELEM(Fconv, kp, ip, jp).real;///(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+        //        RFLOAT imag = FFTW_ELEM(Fconv, kp, ip, jp).imag;///(FFTW_ELEM(Fweight, kp, ip, jp)*normfft);
+        //        //avg_Fweight += A3D_ELEM(Fweight, k, i, j)*A3D_ELEM(Fweight, k, i, j);
+        //        //avg_Fconv += abs(A3D_ELEM(Fconv, k, i, j));
+        //        avg_Fconv += (real*real + imag*imag);//*FFTW_ELEM(Fweight, kp, ip, jp)*normfft;
+        //        counter += 1.;
+        //    }
+        //}
+        //avg_Fweight /= MULTIDIM_SIZE(Fweight);
+        //avg_Fconv /= counter;
         std::cout << "masking: " << masking << " avg_Fconv: " << sqrt(avg_Fconv) << " ";
+        
+        //decenter(data, Fdata, max_r2);
 
         //transformer.inverseFourierTransform(Fin, Mout);
         //transformer.fReal = NULL; // Make sure to re-calculate fftw plan

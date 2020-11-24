@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -40,9 +40,9 @@
 #include "../block/block_store.cuh"
 #include "../block/block_scan.cuh"
 #include "../block/block_discontinuity.cuh"
+#include "../config.cuh"
 #include "../iterator/cache_modified_input_iterator.cuh"
 #include "../iterator/constant_input_iterator.cuh"
-#include "../util_namespace.cuh"
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -223,7 +223,7 @@ struct AgentReduceByKey
     typedef KeyOutputT    KeyExchangeT[TILE_ITEMS + 1];
     typedef ValueOutputT  ValueExchangeT[TILE_ITEMS + 1];
 
-    // Shared memory type for this threadblock
+    // Shared memory type for this thread block
     union _TempStorage
     {
         struct
@@ -328,7 +328,7 @@ struct AgentReduceByKey
         OffsetT         num_tile_segments,
         OffsetT         num_tile_segments_prefix)
     {
-        __syncthreads();
+        CTA_SYNC();
 
         // Compact and scatter pairs
         #pragma unroll
@@ -340,7 +340,7 @@ struct AgentReduceByKey
             }
         }
 
-        __syncthreads();
+        CTA_SYNC();
 
         for (int item = threadIdx.x; item < num_tile_segments; item += BLOCK_THREADS)
         {
@@ -418,7 +418,7 @@ struct AgentReduceByKey
                 d_keys_in[tile_offset - 1];     // Subsequent tiles get last key from previous tile
         }
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Load values
         if (IS_LAST_TILE)
@@ -426,7 +426,7 @@ struct AgentReduceByKey
         else
             BlockLoadValuesT(temp_storage.load_values).Load(d_values_in + tile_offset, values);
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Initialize head-flags and shuffle up the previous keys
         if (IS_LAST_TILE)
@@ -454,11 +454,13 @@ struct AgentReduceByKey
         // Perform exclusive tile scan
         OffsetValuePairT    block_aggregate;        // Inclusive block-wide scan aggregate
         OffsetT             num_segments_prefix;    // Number of segments prior to this tile
+        OffsetValuePairT    total_aggregate;        // The tile prefix folded with block_aggregate
         if (tile_idx == 0)
         {
             // Scan first tile
             BlockScanT(temp_storage.scan).ExclusiveScan(scan_items, scan_items, scan_op, block_aggregate);
-            num_segments_prefix = 0;
+            num_segments_prefix     = 0;
+            total_aggregate         = block_aggregate;
 
             // Update tile status if there are successor tiles
             if ((!IS_LAST_TILE) && (threadIdx.x == 0))
@@ -470,8 +472,9 @@ struct AgentReduceByKey
             TilePrefixCallbackOpT prefix_op(tile_state, temp_storage.prefix, scan_op, tile_idx);
             BlockScanT(temp_storage.scan).ExclusiveScan(scan_items, scan_items, scan_op, prefix_op);
 
-            num_segments_prefix     = prefix_op.GetExclusivePrefix().key;
             block_aggregate         = prefix_op.GetBlockAggregate();
+            num_segments_prefix     = prefix_op.GetExclusivePrefix().key;
+            total_aggregate         = prefix_op.GetInclusivePrefix();
         }
 
         // Rezip scatter items and segment indices
@@ -497,11 +500,11 @@ struct AgentReduceByKey
         {
             OffsetT num_segments = num_segments_prefix + num_tile_segments;
 
-            // If the last tile is a whole tile, the block-wide aggregate contains the value for the last segment
+            // If the last tile is a whole tile, output the final_value
             if (num_remaining == TILE_ITEMS)
             {
                 d_unique_out[num_segments]      = keys[ITEMS_PER_THREAD - 1];
-                d_aggregates_out[num_segments]  = block_aggregate.value;
+                d_aggregates_out[num_segments]  = total_aggregate.value;
                 num_segments++;
             }
 
@@ -515,7 +518,7 @@ struct AgentReduceByKey
      * Scan tiles of items as part of a dynamic chained scan
      */
     __device__ __forceinline__ void ConsumeRange(
-        int                 num_items,          ///< Total number of input items
+        OffsetT             num_items,          ///< Total number of input items
         ScanTileStateT&     tile_state,         ///< Global tile state descriptor
         int                 start_tile)         ///< The starting tile for the current grid
     {

@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -405,8 +405,22 @@ struct CachingDeviceAllocator
                 // To prevent races with reusing blocks returned by the host but still
                 // in use by the device, only consider cached blocks that are
                 // either (from the active stream) or (from an idle stream)
-                if ((active_stream == block_itr->associated_stream) ||
-                    (cudaEventQuery(block_itr->ready_event) != cudaErrorNotReady))
+                bool is_reusable = false;
+                if (active_stream == block_itr->associated_stream)
+                {
+                    is_reusable = true;
+                }
+                else
+                {
+                    const cudaError_t event_status = cudaEventQuery(block_itr->ready_event);
+                    if(event_status != cudaErrorNotReady)
+                    {
+                        CubDebug(event_status);
+                        is_reusable = true;
+                    }
+                }
+
+                if(is_reusable)
                 {
                     // Reuse existing cache block.  Insert into live blocks.
                     found = true;
@@ -585,9 +599,6 @@ struct CachingDeviceAllocator
             }
         }
 
-        // Unlock
-        mutex.Unlock();
-
         // First set to specified device (entrypoint may not be set)
         if (device != entrypoint_device)
         {
@@ -600,7 +611,11 @@ struct CachingDeviceAllocator
             // Insert the ready event in the associated stream (must have current device set properly)
             if (CubDebug(error = cudaEventRecord(search_key.ready_event, search_key.associated_stream))) return error;
         }
-        else
+
+        // Unlock
+        mutex.Unlock();
+
+        if (!recached)
         {
             // Free the allocation from the runtime and cleanup the event.
             if (CubDebug(error = cudaFree(d_ptr))) return error;

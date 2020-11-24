@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -31,16 +31,21 @@
  * Simple portable mutex
  */
 
+#include "../util_cpp_dialect.cuh"
 
 #pragma once
 
-#if __cplusplus > 199711L
+#if CUB_CPP_DIALECT >= 2011
     #include <mutex>
 #else
     #if defined(_WIN32) || defined(_WIN64)
         #include <intrin.h>
+
+        #define WIN32_LEAN_AND_MEAN
+        #define NOMINMAX
         #include <windows.h>
-        #undef small            // Windows is terrible for polluting macro namespace
+        #undef WIN32_LEAN_AND_MEAN
+        #undef NOMINMAX
 
         /**
          * Compiler read/write barrier
@@ -50,7 +55,7 @@
     #endif
 #endif
 
-#include "../util_namespace.cuh"
+#include "../config.cuh"
 
 
 /// Optional outer namespace(s)
@@ -67,7 +72,7 @@ namespace cub {
  */
 struct Mutex
 {
-#if __cplusplus > 199711L
+#if CUB_CPP_DIALECT >= 2011
 
     std::mutex mtx;
 
@@ -81,14 +86,9 @@ struct Mutex
         mtx.unlock();
     }
 
-    void TryLock()
-    {
-        mtx.try_lock();
-    }
+#else       // C++11
 
-#else       //__cplusplus > 199711L
-
-    #if defined(_MSC_VER)
+    #if CUB_HOST_COMPILER == CUB_HOST_COMPILER_MSVC
 
         // Microsoft VC++
         typedef long Spinlock;
@@ -123,7 +123,7 @@ struct Mutex
         {
         }
 
-    #endif  // defined(_MSC_VER)
+    #endif  // MSVC
 
         /// Lock member
         volatile Spinlock lock;
@@ -155,7 +155,7 @@ struct Mutex
             lock = 0;
         }
 
-#endif      // __cplusplus > 199711L
+#endif      // C++11
 
 };
 

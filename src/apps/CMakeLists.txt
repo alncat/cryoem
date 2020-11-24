@@ -10,6 +10,8 @@ message(STATUS "CMAKE_BINARY_DIR:" ${CMAKE_BINARY_DIR})
 file(GLOB REL_SRC "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.c" "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.cpp")
 file(GLOB REL_SRC_H "${CMAKE_SOURCE_DIR}/src/*.h" "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.h")
 file(GLOB REL_HP "${CMAKE_SOURCE_DIR}/src/Healpix_2.15a/*.cc")
+file(GLOB REL_VAE_H "${CMAKE_SOURCE_DIR}/src/vae/*.h")
+file(GLOB REL_VAE "${CMAKE_SOURCE_DIR}/src/vae/*.cpp")
 
 file(GLOB RELION_TARGETS "${CMAKE_SOURCE_DIR}/src/apps/*.cpp")
 
@@ -29,13 +31,19 @@ endif(NOT GUI)
 
 # relion_lib is STATIC or SHARED type based on BUILD_SHARED_LIBS=ON/OFF
 if(BUILD_SHARED_LIBS)
+    add_library(vae_lib SHARED ${REL_VAE} ${REL_VAE_H})# ${tiny_dnn_headers})
     add_library(relion_lib SHARED ${REL_SRC} ${REL_SRC_H} ${REL_HP})
     install(TARGETS relion_lib LIBRARY DESTINATION lib)
+    install(TARGETS vae_lib LIBRARY DESTINATION lib)
 else()
+    add_library(vae_lib STATIC ${REL_VAE} ${REL_VAE_H})
     add_library(relion_lib STATIC ${REL_SRC} ${REL_SRC_H} ${REL_HP})
 endif()
 
-target_link_libraries(relion_lib ${FFTW_LIBRARIES})
+target_include_directories(vae_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
+message("${TinyDNN_INCLUDE_DIRS}")
+#target_link_libraries(vae_lib ${TinyDNN_LIBRARY_DIRS})
+target_link_libraries(relion_lib ${FFTW_LIBRARIES} vae_lib)
 if(BUILD_OWN_FFTW)
     add_dependencies(relion_lib OWN_FFTW)
 endif()
@@ -52,6 +60,7 @@ endif(GUI)
 if (CUDA_FOUND)
 
     file(GLOB REL_CUDA_SRC "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.cu" "${CMAKE_SOURCE_DIR}/src/gpu_utils/cuda_kernels/*.cu")
+
     cuda_add_library(relion_gpu_util ${REL_CUDA_SRC})
 
     if (${CMAKE_BUILD_TYPE_LOWER} STREQUAL "profiling")
@@ -80,34 +89,38 @@ if (CUDA_FOUND)
 	    target_link_libraries(relion_gpu_util relion_lib)
 	    target_link_libraries(relion_gpu_util ${CUDA_CUFFT_LIBRARIES})
     endif()
-    
-    target_link_libraries(relion_lib relion_gpu_util ${CUDA_CUFFT_LIBRARIES})
-    
+
+    #target_include_directories(relion_lib PUBLIC ${TORCH_INCLUDE_DIRS})
+    #target_include_directories(relion_gpu_util PUBLIC ${TORCH_INCLUDE_DIRS})
+    target_link_libraries(relion_lib relion_gpu_util ${CUDA_CUFFT_LIBRARIES})# ${TORCH_LIBRARIES})
+
 endif(CUDA_FOUND)
 
 foreach (_target ${RELION_TARGETS})
 	GET_FILENAME_COMPONENT(_target "relion_${_target}" NAME_WE)  #specify target name WE=WithoutExtension
-	
+
     add_executable(${_target} ${_target}.cpp )
     set(LIB relion_lib)
-	
+
  	add_dependencies(${_target} relion_lib)
-	
+
 	set_target_properties(${_target} PROPERTIES PREFIX "relion_")
-	
-	target_link_libraries(${_target} ${LIB} ${FFTW_LIBRARIES} ${EXTRA_LIBS} ${MPI_LIBRARIES} ${CMAKE_DL_LIBS})
-	
+
+    #target_include_directories(${_target} PUBLIC ${TORCH_INCLUDE_DIRS})
+
+	target_link_libraries(${_target} ${LIB} ${FFTW_LIBRARIES} ${EXTRA_LIBS} ${MPI_LIBRARIES} ${CMAKE_DL_LIBS})# ${TORCH_LIBRARIES})
+
 	if(CUDA_FOUND)
 	    target_link_libraries(${_target} relion_gpu_util)
 	endif(CUDA_FOUND)
-	
+
 	if(GUI)
         include_directories("${FLTK_INCLUDE_DIR}")
 		target_link_libraries(${_target} ${FLTK_LIBRARIES} ${X11})
 	endif(GUI)
-	
+
 	message(STATUS "added ${_target}...")
-	
+
 	install (TARGETS ${_target} RUNTIME DESTINATION bin)
 endforeach()
 
