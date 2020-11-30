@@ -19,6 +19,35 @@ inline size_t get_deconv_size(size_t width, size_t kernel_size, size_t padding_s
     return (width * stride) + padding_size - 1;
 }
 
+void construct_ae(tiny_dnn::network<tiny_dnn::sequential> &nn, size_t image_size){
+    tiny_dnn::convolutional_layer cnv1(image_size, image_size, 5, 1, 6, padding::valid, true, 2, 2); //118
+    tiny_dnn::relu_layer cnv1_relu();
+    tiny_dnn::convolutional_layer cnv2(cnv1.out_shape()[0].width_, cnv1.out_shape()[0].height_, 5, cnv1.out_shape()[0].depth_, 12, padding::valid, true, 2, 2);//56
+    tiny_dnn::relu_layer cnv2_relu();
+    tiny_dnn::convolutional_layer cnv3(cnv2.out_shape()[0].width_, cnv2.out_shape()[0].height_, 5, cnv2.out_shape()[0].depth_, 12, padding::valid, true, 2, 2);//25
+    tiny_dnn::relu_layer cnv3_relu();
+    tiny_dnn::convolutional_layer cnv4(cnv3.out_shape()[0].width_, cnv3.out_shape()[0].height_, 5, cnv3.out_shape()[0].depth_, 12, padding::valid, true, 2, 2);//10
+    tiny_dnn::relu_layer cnv4_relu();
+    tiny_dnn::convolutional_layer cnv5(cnv4.out_shape()[0].width_, cnv4.out_shape()[0].height_, 5, cnv4.out_shape()[0].depth_, 12, padding::valid, true, 2, 2);//10
+    tiny_dnn::relu_layer cnv5_relu();
+    //fully connected layer
+    tiny_dnn::fully_connected_layer fc1(cnv5.out_shape()[0].size(), 64);
+    tiny_dnn::relu_layer fc1_tanh();
+    tiny_dnn::deconvolutional_layer decnv1(2, 2, 7, 16, 16, padding::valid, true, 2, 2);//10
+    tiny_dnn::relu_layer decnv1_relu();
+    tiny_dnn::deconvolutional_layer decnv2(decnv1.out_shape()[0].width_, decnv1.out_shape()[0].height_, 7, decnv1.out_shape()[0].depth_, 16, padding::valid, true, 2, 2);//26
+    tiny_dnn::relu_layer decnv2_relu();
+    tiny_dnn::deconvolutional_layer decnv3(decnv2.out_shape()[0].width_, decnv2.out_shape()[0].height_, 5, decnv2.out_shape()[0].depth_, 16, padding::valid, true, 2, 2);//56
+    tiny_dnn::relu_layer decnv3_relu();
+    tiny_dnn::deconvolutional_layer decnv4(decnv3.out_shape()[0].width_, decnv3.out_shape()[0].height_, 5, decnv3.out_shape()[0].depth_, 16, padding::valid, true, 2, 2);//116
+    tiny_dnn::relu_layer decnv4_relu();
+    tiny_dnn::deconvolutional_layer decnv5(decnv4.out_shape()[0].width_, decnv4.out_shape()[0].height_, 5, decnv4.out_shape()[0].depth_, 16, padding::valid, true, 2, 2);//236
+    tiny_dnn::relu_layer decnv5_relu();
+    tiny_dnn::deconvolutional_layer decnv6(decnv5.out_shape()[0].width_, decnv5.out_shape()[0].height_, 5, decnv5.out_shape()[0].depth_, 16, padding::valid, true, 2, 2);//240
+    tiny_dnn::tanh_layer decnv6_tanh();
+
+}
+
 void deconv_lanet(tiny_dnn::network<tiny_dnn::graph> &nn,
                   std::vector<tiny_dnn::label_t> train_labels,
                   std::vector<tiny_dnn::label_t> test_labels,
@@ -105,11 +134,6 @@ static const bool tbl[] = {
   ofs << nn;
 }
 
-
-void construct_ae(tiny_dnn::network<tiny_dnn::sequential> &nn, size_t image_size){
-    nn << tiny_dnn::convolutional_layer(image_size, image_size, 5, 1, 6)
-       << tiny_dnn::relu_layer(get_conv_size(image_size, 5, 0, 1))
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Deconcolutional Auto-encoder
