@@ -41,6 +41,7 @@ else()
 endif()
 
 target_include_directories(vae_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
+target_include_directories(relion_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
 message("${TinyDNN_INCLUDE_DIRS}")
 #target_link_libraries(vae_lib ${TinyDNN_LIBRARY_DIRS})
 target_link_libraries(relion_lib ${FFTW_LIBRARIES} vae_lib)
@@ -92,6 +93,7 @@ if (CUDA_FOUND)
 
     #target_include_directories(relion_lib PUBLIC ${TORCH_INCLUDE_DIRS})
     #target_include_directories(relion_gpu_util PUBLIC ${TORCH_INCLUDE_DIRS})
+    target_include_directories(relion_gpu_util PUBLIC ${TinyDNN_INCLUDE_DIRS})
     target_link_libraries(relion_lib relion_gpu_util ${CUDA_CUFFT_LIBRARIES})# ${TORCH_LIBRARIES})
 
 endif(CUDA_FOUND)

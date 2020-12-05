@@ -340,7 +340,6 @@ void runWavgKernel(
 				trans_y,
 				trans_z,
 				sorted_weights,
-                
 				ctfs,
 				wdiff2s_parts,
 				wdiff2s_AA,
@@ -407,8 +406,8 @@ void runWavgKernel(
 				trans_y,
 				trans_z,
 				sorted_weights,
-                //ori_idx,
-                //ori_proj,
+                ori_idx,
+                ori_proj,
 				ctfs,
 				wdiff2s_parts,
 				wdiff2s_AA,

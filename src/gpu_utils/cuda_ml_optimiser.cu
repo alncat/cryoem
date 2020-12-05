@@ -4,6 +4,7 @@
 #include <math.h>
 #include <ctime>
 #include <vector>
+#include <queue>
 #include <iostream>
 #include "src/gpu_utils/cuda_projector.h"
 #include "src/gpu_utils/cuda_projector.cuh"
@@ -2703,14 +2704,14 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 }
                 pq.push(std::make_pair(major_orientations[i + (exp_iclass - sp.iclass_min)*orientation_num], i + (exp_iclass - sp.iclass_min)*orientation_num));
             }
-            //pop first 4 orientation
+            ////pop first 4 orientation
             int major_cnt = 0;
             major_weights.push_back(std::vector<XFLOAT>());
             for(long unsigned i = 0; i < orientation_num; i++){
                 major_orientations[i + (exp_iclass - sp.iclass_min)*orientation_num] = -1;
             }
 
-            std::cout << "sum_weight: " << op.sum_weight[ipart] << std::endl;
+            //std::cout << "sum_weight: " << op.sum_weight[ipart] << std::endl;
             while(major_cnt < 4 && !pq.empty() && pq.top().first > 0.) {
                 major_orientations[pq.top().second] = major_cnt;
                 major_weights.back().push_back(pq.top().first/op.sum_weight[ipart]);
@@ -2718,9 +2719,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 major_cnt++;
                 pq.pop();
             }
-            //std::cout << "major_cnt: " << major_cnt << std::endl;
+            ////std::cout << "major_cnt: " << major_cnt << std::endl;
             major_cnts.push_back(major_cnt);
-            major_projections.emplace_back(CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator));
+            major_projections.push_back(CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator));
 
 			classPos+=orientation_num*translation_num;
 			CTOC(cudaMLO->timer,"pre_wavg_map");
@@ -2741,7 +2742,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			/*======================================================
 								 KERNEL CALL
 			======================================================*/
-            major_projections[exp_iclass - sp.iclass_min].put_on_device();
+            //major_projections[exp_iclass - sp.iclass_min].put_on_device();
+            major_projections[exp_iclass - sp.iclass_min].device_alloc();
 
 			long unsigned orientation_num(ProjectionData[ipart].orientation_num[exp_iclass]);
 
@@ -2761,8 +2763,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 					~trans_y,
 					~trans_z,
 					&sorted_weights.d_ptr[classPos],
-                    nullptr,//~major_orientations,
-                    nullptr,//~major_projections[exp_iclass - sp.iclass_min],
+                    ~major_orientations,
+                    ~major_projections[exp_iclass - sp.iclass_min],
 					~ctfs,
 					~wdiff2s_sum,
 					&wdiff2s_AA(AAXA_pos),
@@ -2785,31 +2787,44 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //projection in major_projections
             //divide the major_projection by total weight to get normalized projection
             //create a tensor to hold the projections
-            major_projections[(exp_iclass - sp.iclass_min)].cp_to_host();
-            std::vector<vec_t> torch_projections;
+            //major_projections[(exp_iclass - sp.iclass_min)].cp_to_host();
+            std::vector<tiny_dnn::vec_t> real_projections;
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
-                vec_t i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
+                tiny_dnn::vec_t i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
                 unsigned xfsize = cudaMLO->transformer1.xFSize;
                 unsigned yfsize = cudaMLO->transformer1.yFSize;
+                //std::cout << xfsize << " " << yfsize << std::endl;
+                //std::cout << major_projections[exp_iclass - sp.iclass_min].getSize() << " " << image_size << " " << major_cnts[exp_iclass - sp.iclass_min] << std::endl;
+                int i_cls = exp_iclass - sp.iclass_min;
                 //window fourier transform
                 for(int t_j = 0; t_j < image_size; t_j++) {
-                    major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j] /= major_weights[exp_iclass - sp.iclass_min][t_i];
-                    major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1] /= major_weights[exp_iclass - sp.iclass_min][t_i];
+                    int index = t_i*image_size*2 + 2*t_j;
+                    if(index + 1 >= major_projections[i_cls].getSize()) 
+                        std::cout << "wrong!" << std::endl;
+                    float weight = major_weights[i_cls][t_i];
+                    //major_projections[(exp_iclass - sp.iclass_min)][index] = major_projections[exp_iclass-sp.iclass_min][index]/major_weights[exp_iclass - sp.iclass_min][t_i];
+                    float real = major_projections[i_cls][index];
+                    float imag = major_projections[i_cls][index+1];
+                    real /= weight;
+                    imag /= weight;
+                    //major_projections[(exp_iclass - sp.iclass_min)][index+1] = major_projections[exp_iclass-sp.iclass_min][index + 1]/major_weights[exp_iclass - sp.iclass_min][t_i];
+                    //major_projections[i_cls][index] = real/weight;
+                    //major_projections[exp_iclass - sp.iclass_min][index+1] = imag/weight;
                     //set the value of tensor
                     //get the logical index
                     int y = t_j / projKernel.imgX;
                     int x = t_j % projKernel.imgX;
                     if(y >= projKernel.imgX) y -= projKernel.imgY;
                     if(y < 0) y += yfsize;
-                    cudaMLO->transformer1.fouriers[y*xfsize + x].x = major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j];
-                    cudaMLO->transformer1.fouriers[y*xfsize + x].y = major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1];
+                    cudaMLO->transformer1.fouriers[y*xfsize + x].x = real;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j];
+                    cudaMLO->transformer1.fouriers[y*xfsize + x].y = imag;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1];
                 }
 
             //ifft on major_projection
                 cudaMLO->transformer1.backward();
 		        cudaMLO->transformer1.reals.streamSync();
-                //center reals
+                ////center reals
                 runCenterFFT(
                         cudaMLO->transformer1.reals,
                         (int)cudaMLO->transformer1.xSize,
@@ -2818,12 +2833,12 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         false
                         );
                 cudaMLO->transformer1.reals.cp_to_host();
-                //copy to projection
+                ////copy to projection
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
                 }
                 //emplace_back
-                torch_projections.emplace_back(i_projection);
+                //real_projections.emplace_back(i_projection);
             }
             //pass to auto encoder
 
