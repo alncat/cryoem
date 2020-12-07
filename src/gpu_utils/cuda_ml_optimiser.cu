@@ -2787,7 +2787,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //projection in major_projections
             //divide the major_projection by total weight to get normalized projection
             //create a tensor to hold the projections
-            //major_projections[(exp_iclass - sp.iclass_min)].cp_to_host();
+            major_projections[(exp_iclass - sp.iclass_min)].cp_to_host();
+            DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
+    
             std::vector<tiny_dnn::vec_t> real_projections;
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
@@ -2833,9 +2835,16 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         false
                         );
                 cudaMLO->transformer1.reals.cp_to_host();
+                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
                 ////copy to projection
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
+                }
+                if(t_i == 0 && part_id == 555){
+                    //save to image
+                    Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
+                    std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
+                    debug_img.write("debug_proj.mrc");
                 }
                 //emplace_back
                 //real_projections.emplace_back(i_projection);
@@ -2848,10 +2857,10 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //std::cout << baseMLO->do_ctf_correction << " " << cudaMLO->dataIs3D << " " << sp.iclass_max - sp.iclass_min << std::endl;
             if(baseMLO->do_ctf_correction && !cudaMLO->dataIs3D && sp.iclass_max - sp.iclass_min == 0){
                 //note that AA, XA, sum are fftw centered
-                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
                 wdiff2s_AA.cp_to_host();
 		        wdiff2s_XA.cp_to_host();
                 wdiff2s_sum.cp_to_host();
+                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
                 if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5.3)) > 1.){//6))>1.){//4.4) > 1.){
                     MultidimArray<RFLOAT> Fctf;
                     MultidimArray<RFLOAT> AA_spectrum, AA_counter, ctf_spectrum;
@@ -3284,7 +3293,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		//wdiff2s_AA.cp_to_host();
 		//wdiff2s_XA.cp_to_host();
 		//wdiff2s_sum.cp_to_host();
-		DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
+		//DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaStreamPerThread));
 
         
 		AAXA_pos=0;

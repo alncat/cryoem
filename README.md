@@ -14,7 +14,12 @@ OPUS-SSRI can be installed by using the docker command below.
 ```
 docker pull alncat/opus-ssri:first
 ```
-We can then run the program in the docker image. 
+Another important step is setting up gpu support for docker. 
+You can follow the instruction at https://www.tensorflow.org/install/docker .
+We can then run the program in the docker image via
+```
+sudo docker run --name ssri-test --gpus all  -it -v /data:/data alncat/opus-ssri:first bash
+```
 You can later keep the source in docker image up to date by replacing the /relion-luo/src directory with the src in this repository and recompling the whole program using make in /relion-luo/build. The updated program now can be found in /relion-luo/build/bin.
 
 ## Usage
