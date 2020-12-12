@@ -4,6 +4,7 @@
 #include <math.h>
 #include <ctime>
 #include <vector>
+#include <memory>
 #include <queue>
 #include <iostream>
 #include "src/gpu_utils/cuda_projector.h"
@@ -2631,7 +2632,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
         //record the major orientations for projection
         CudaGlobalPtr<XFLOAT> major_orientations(ProjectionData[ipart].orientationNumAllClasses, cudaMLO->devBundle->allocator);
         std::vector<int> major_cnts;
-        std::vector<CudaGlobalPtr<XFLOAT>> major_projections;
+        std::vector<std::unique_ptr<CudaGlobalPtr<XFLOAT>>> major_projections;
         std::vector<std::vector<XFLOAT>> major_weights;
 
 		int classPos = 0;
@@ -2721,7 +2722,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             }
             ////std::cout << "major_cnt: " << major_cnt << std::endl;
             major_cnts.push_back(major_cnt);
-            major_projections.push_back(CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator));
+            major_projections.push_back(std::make_unique<CudaGlobalPtr<XFLOAT>>(major_cnt*image_size*2, cudaMLO->devBundle->allocator));
 
 			classPos+=orientation_num*translation_num;
 			CTOC(cudaMLO->timer,"pre_wavg_map");
@@ -2743,7 +2744,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 								 KERNEL CALL
 			======================================================*/
             //major_projections[exp_iclass - sp.iclass_min].put_on_device();
-            major_projections[exp_iclass - sp.iclass_min].device_alloc();
+            major_projections[exp_iclass - sp.iclass_min]->device_alloc();
 
 			long unsigned orientation_num(ProjectionData[ipart].orientation_num[exp_iclass]);
 
@@ -2764,7 +2765,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 					~trans_z,
 					&sorted_weights.d_ptr[classPos],
                     ~major_orientations,
-                    ~major_projections[exp_iclass - sp.iclass_min],
+                    ~(*major_projections[exp_iclass - sp.iclass_min]),
 					~ctfs,
 					~wdiff2s_sum,
 					&wdiff2s_AA(AAXA_pos),
@@ -2787,9 +2788,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //projection in major_projections
             //divide the major_projection by total weight to get normalized projection
             //create a tensor to hold the projections
-            major_projections[(exp_iclass - sp.iclass_min)].cp_to_host();
             DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
-    
+            major_projections[(exp_iclass - sp.iclass_min)]->cp_to_host();
+            major_projections[exp_iclass - sp.iclass_min]->streamSync();
             std::vector<tiny_dnn::vec_t> real_projections;
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
@@ -2801,13 +2802,14 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 int i_cls = exp_iclass - sp.iclass_min;
                 //window fourier transform
                 for(int t_j = 0; t_j < image_size; t_j++) {
+                    //index for ith projection
                     int index = t_i*image_size*2 + 2*t_j;
-                    if(index + 1 >= major_projections[i_cls].getSize()) 
+                    if(index + 1 >= major_projections[i_cls]->getSize()) 
                         std::cout << "wrong!" << std::endl;
                     float weight = major_weights[i_cls][t_i];
                     //major_projections[(exp_iclass - sp.iclass_min)][index] = major_projections[exp_iclass-sp.iclass_min][index]/major_weights[exp_iclass - sp.iclass_min][t_i];
-                    float real = major_projections[i_cls][index];
-                    float imag = major_projections[i_cls][index+1];
+                    float real = (*major_projections[i_cls])[index];
+                    float imag = (*major_projections[i_cls])[index+1];
                     real /= weight;
                     imag /= weight;
                     //major_projections[(exp_iclass - sp.iclass_min)][index+1] = major_projections[exp_iclass-sp.iclass_min][index + 1]/major_weights[exp_iclass - sp.iclass_min][t_i];
@@ -2835,12 +2837,12 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         false
                         );
                 cudaMLO->transformer1.reals.cp_to_host();
-                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
+                cudaMLO->transformer1.reals.streamSync();
                 ////copy to projection
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
                 }
-                if(t_i == 0 && part_id == 555){
+                if(t_i == 0 && part_id == 48){
                     //save to image
                     Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
                     std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
@@ -2857,10 +2859,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //std::cout << baseMLO->do_ctf_correction << " " << cudaMLO->dataIs3D << " " << sp.iclass_max - sp.iclass_min << std::endl;
             if(baseMLO->do_ctf_correction && !cudaMLO->dataIs3D && sp.iclass_max - sp.iclass_min == 0){
                 //note that AA, XA, sum are fftw centered
+                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
                 wdiff2s_AA.cp_to_host();
 		        wdiff2s_XA.cp_to_host();
                 wdiff2s_sum.cp_to_host();
-                DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
+                wdiff2s_AA.streamSync();
                 if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5.3)) > 1.){//6))>1.){//4.4) > 1.){
                     MultidimArray<RFLOAT> Fctf;
                     MultidimArray<RFLOAT> AA_spectrum, AA_counter, ctf_spectrum;
