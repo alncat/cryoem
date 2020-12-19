@@ -114,6 +114,7 @@ void MlOptimiserMpi::initialise()
 		// ------------------------------ FIGURE OUT GLOBAL DEVICE MAP------------------------------------------
 		if (!node->isMaster())
 		{
+            
 			cudaDeviceProp deviceProp;
 			int compatibleDevices(0);
 			// Send device count seen by this slave
@@ -146,7 +147,8 @@ void MlOptimiserMpi::initialise()
 		}
 		else
 		{
-
+            //volatile int vae_toggle = 0;
+            //while (0 == vae_toggle) sleep(1);
 			for (int slave = 1; slave < node->size; slave++)
 			{
 				// Receive device count seen by this slave
@@ -301,6 +303,7 @@ void MlOptimiserMpi::initialise()
 
         if (! node->isMaster())
         {
+
             int devCount = cudaDevices.size();
             node->relion_MPI_Send(&devCount, 1, MPI_INT, 0, MPITAG_INT, MPI_COMM_WORLD);
 
@@ -454,6 +457,10 @@ will still yield good performance and possibly a more stable execution. \n" << s
 
 
     MlOptimiser::initialiseGeneral(node->rank);
+    //intialise vae model if not master
+    if(!node->isMaster()) {
+        initialise_model_optimizer(mymodel.ori_size, 100, 32, 1e-3);
+    }
 
     initialiseWorkLoad();
 

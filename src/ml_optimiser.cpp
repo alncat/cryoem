@@ -1024,6 +1024,7 @@ void MlOptimiser::initialise()
     std::cerr<<"MlOptimiser::initialise Entering"<<std::endl;
 #endif
 
+    //vae_run();
 	if (do_gpu)
 	{
 #ifdef CUDA
@@ -1213,6 +1214,7 @@ void MlOptimiser::initialiseGeneral(int rank)
 {
     //initialise my rank
     myRank = rank;
+    //vae_run();
 
 #ifdef DEBUG
 	std::cerr << "Entering initialiseGeneral" << std::endl;

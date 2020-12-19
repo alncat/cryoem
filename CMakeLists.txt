@@ -240,15 +240,17 @@ if(NOT FFTW_FOUND)
 endif(NOT FFTW_FOUND)
 
 #pytorch
-#if(NOT Torch_FOUND)
-#    #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
-#    find_package(Torch REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../libtorch")
-#endif()
+if(NOT Torch_FOUND)
+    #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
+    find_package(Torch REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../libtorch")
+endif()
 
 #tinydnn
-if(NOT tinydnn_FOUND)
-    find_package(tinydnn REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../tiny-dnn")
-endif()
+#if(NOT tinydnn_FOUND)
+#    find_package(tinydnn REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../tiny-dnn")
+#endif()
+#
+#paddle
 
 #if(Torch_FOUND)
 #    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")

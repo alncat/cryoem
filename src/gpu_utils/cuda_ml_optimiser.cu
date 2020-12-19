@@ -2722,7 +2722,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             }
             ////std::cout << "major_cnt: " << major_cnt << std::endl;
             major_cnts.push_back(major_cnt);
-            major_projections.push_back(std::make_unique<CudaGlobalPtr<XFLOAT>>(major_cnt*image_size*2, cudaMLO->devBundle->allocator));
+            major_projections.push_back(std::unique_ptr<CudaGlobalPtr<XFLOAT>>(new CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator)));
 
 			classPos+=orientation_num*translation_num;
 			CTOC(cudaMLO->timer,"pre_wavg_map");
@@ -2791,10 +2791,10 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
             major_projections[(exp_iclass - sp.iclass_min)]->cp_to_host();
             major_projections[exp_iclass - sp.iclass_min]->streamSync();
-            std::vector<tiny_dnn::vec_t> real_projections;
+            //std::vector<tiny_dnn::vec_t> real_projections;
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
-                tiny_dnn::vec_t i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
+                std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
                 unsigned xfsize = cudaMLO->transformer1.xFSize;
                 unsigned yfsize = cudaMLO->transformer1.yFSize;
                 //std::cout << xfsize << " " << yfsize << std::endl;
@@ -2842,7 +2842,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
                 }
-                if(t_i == 0 && part_id == 48){
+                if(t_i == 0 && part_id == 148){
                     //save to image
                     Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
                     std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);

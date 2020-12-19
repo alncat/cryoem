@@ -119,6 +119,7 @@ __global__ void cuda_kernel_wavg(
 
 			img_real = __ldg(&g_img_real[pixel]);
 			img_imag = __ldg(&g_img_imag[pixel]);
+            XFLOAT cur_ctf = __ldg(&g_ctfs[pixel]);
 
 			for (unsigned long itrans = 0; itrans < translation_num; itrans++)
 			{
@@ -133,8 +134,8 @@ __global__ void cuda_kernel_wavg(
 					else
 						translatePixel(x, y,    g_trans_x[itrans], g_trans_y[itrans],                    img_real, img_imag, trans_real, trans_imag);
 
-					XFLOAT diff_real = ref_real - trans_real;
-					XFLOAT diff_imag = ref_imag - trans_imag;
+					XFLOAT diff_real = ref_real*cur_ctf - trans_real;
+					XFLOAT diff_imag = ref_imag*cur_ctf - trans_imag;
 
 					//s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
                     s_wdiff2s_parts[tid] += weight;

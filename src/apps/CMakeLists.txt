@@ -7,6 +7,68 @@ find_path (X11_INCLUDES Xdbe.h)
 
 message(STATUS "CMAKE_BINARY_DIR:" ${CMAKE_BINARY_DIR})
 
+#paddle
+#if(NOT DEFINED PADDLE_LIB)
+#  message(FATAL_ERROR "please set PADDLE_LIB with -DPADDLE_LIB=/paddle/lib/dir")
+#endif()
+#
+#option(WITH_MKLDNN     "Compile PaddlePaddle with MKLDNN"                                   OFF)
+#option(WITH_MKL        "Compile PaddlePaddle with MKL support, default use openblas."       OFF)
+#
+#include_directories("${PADDLE_LIB}")
+#include_directories("${PADDLE_LIB}/third_party/install/protobuf/include")
+#include_directories("${PADDLE_LIB}/third_party/install/glog/include")
+#include_directories("${PADDLE_LIB}/third_party/install/gflags/include")
+#include_directories("${PADDLE_LIB}/third_party/install/xxhash/include")
+#include_directories("${PADDLE_LIB}/third_party/install/zlib/include")
+#
+#include_directories("${PADDLE_LIB}/third_party/boost")
+#include_directories("${PADDLE_LIB}/third_party/eigen3")
+#include_directories("${PADDLE_LIB}/third_party/threadpool")
+#include_directories("${PADDLE_LIB}/third_party/dlpack")
+#
+#link_directories("${PADDLE_LIB}/third_party/install/protobuf/lib")
+#link_directories("${PADDLE_LIB}/third_party/install/glog/lib")
+#link_directories("${PADDLE_LIB}/third_party/install/gflags/lib")
+#link_directories("${PADDLE_LIB}/third_party/install/xxhash/lib")
+#link_directories("${PADDLE_LIB}/third_party/install/zlib/lib")
+#
+#if(WITH_MKLDNN)
+#  include_directories("${PADDLE_LIB}/third_party/install/mkldnn/include")
+#  if(WIN32)
+#    set(MKLDNN_LIB ${PADDLE_LIB}/third_party/install/mkldnn/lib/mkldnn.lib)
+#  else(WIN32)
+#    set(MKLDNN_LIB ${PADDLE_LIB}/third_party/install/mkldnn/lib/libmkldnn.so.0)
+#  endif(WIN32)
+#endif(WITH_MKLDNN)
+#
+#if(WITH_MKL)
+#  include_directories("${PADDLE_LIB}/third_party/install/mklml/include")
+#  if(WIN32)
+#    set(MATH_LIB ${PADDLE_LIB}/third_party/install/mklml/lib/mklml.lib)
+#  else(WIN32)
+#    set(MATH_LIB ${PADDLE_LIB}/third_party/install/mklml/lib/libmklml_intel.so)
+#  endif(WIN32)
+#else()
+#  if(APPLE)
+#    set(MATH_LIB cblas)
+#  elseif(WIN32)
+#    set(MATH_LIB ${PADDLE_LIB}/third_party/install/openblas/lib/libopenblas.lib)
+#  else()
+#    set(MATH_LIB ${PADDLE_LIB}/third_party/install/openblas/lib/libopenblas.a)
+#  endif(APPLE)
+#endif()
+#
+#if(APPLE)
+#  set(MACOS_LD_FLAGS "-undefined dynamic_lookup -Wl,-all_load -framework CoreFoundation -framework Security")
+#else(APPLE)
+#  set(ARCHIVE_START "-Wl,--whole-archive")
+#  set(ARCHIVE_END "-Wl,--no-whole-archive")
+#  set(EXTERNAL_LIB "-lrt -ldl -lpthread")
+#endif(APPLE)
+#
+##paddle
+
 file(GLOB REL_SRC "${CMAKE_SOURCE_DIR}/src/*.cpp" "${CMAKE_SOURCE_DIR}/src/*.c" "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.cpp")
 file(GLOB REL_SRC_H "${CMAKE_SOURCE_DIR}/src/*.h" "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.h")
 file(GLOB REL_HP "${CMAKE_SOURCE_DIR}/src/Healpix_2.15a/*.cc")
@@ -36,15 +98,36 @@ if(BUILD_SHARED_LIBS)
     install(TARGETS relion_lib LIBRARY DESTINATION lib)
     install(TARGETS vae_lib LIBRARY DESTINATION lib)
 else()
-    add_library(vae_lib STATIC ${REL_VAE} ${REL_VAE_H})
     add_library(relion_lib STATIC ${REL_SRC} ${REL_SRC_H} ${REL_HP})
+    add_library(vae_lib STATIC ${REL_VAE} ${REL_VAE_H})
 endif()
 
-target_include_directories(vae_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
-target_include_directories(relion_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
+#target_include_directories(vae_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
+#target_include_directories(relion_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
 message("${TinyDNN_INCLUDE_DIRS}")
+target_link_libraries(vae_lib ${TORCH_LIBRARIES})
 #target_link_libraries(vae_lib ${TinyDNN_LIBRARY_DIRS})
-target_link_libraries(relion_lib ${FFTW_LIBRARIES} vae_lib)
+#target_link_libraries(vae_lib ${MACOS_LD_FLAGS}
+#	${ARCHIVE_START}
+#	${PADDLE_LIB}/paddle/fluid/inference/libpaddle_fluid.so
+#	${ARCHIVE_END}
+#    /ssd/lzw/paddle/build/paddle/fluid/platform/libflags.a
+#	${MATH_LIB}
+#	${MKLDNN_LIB}
+#	glog gflags protobuf z xxhash
+#	${EXTERNAL_LIB})
+#
+target_link_libraries(relion_lib ${FFTW_LIBRARIES} vae_lib)# ${EXTERNAL_LIB})
+#target_link_libraries(relion_lib ${MACOS_LD_FLAGS}
+#	${ARCHIVE_START}
+#	${PADDLE_LIB}/paddle/fluid/inference/libpaddle_fluid.so
+#	${ARCHIVE_END}
+#    /ssd/lzw/paddle/build/paddle/fluid/platform/libflags.a
+#	${MATH_LIB}
+#	${MKLDNN_LIB}
+#	glog gflags protobuf z xxhash
+#	${EXTERNAL_LIB})
+
 if(BUILD_OWN_FFTW)
     add_dependencies(relion_lib OWN_FFTW)
 endif()
@@ -71,6 +154,16 @@ if (CUDA_FOUND)
         message(STATUS "Adding extra library for NVIDIA profiling: ${NV_TOOLS_LIBRARIES}")
     endif()
 
+    #target_link_libraries(relion_gpu_util ${MACOS_LD_FLAGS}
+	#${ARCHIVE_START}
+	#${PADDLE_LIB}/paddle/fluid/inference/libpaddle_fluid.so
+    #/ssd/lzw/paddle/build/paddle/fluid/platform/libflags.a
+	#${ARCHIVE_END}
+	#${MATH_LIB}
+	#${MKLDNN_LIB}
+	#glog gflags protobuf z xxhash
+	#${EXTERNAL_LIB})
+
 	# Presently we have a number of (bad) circular dependencies between the gpu util
 	# and relion libraries, which cause errors at least on OS X with clang. Tell the
 	# compiler to ignore them.
@@ -93,7 +186,7 @@ if (CUDA_FOUND)
 
     #target_include_directories(relion_lib PUBLIC ${TORCH_INCLUDE_DIRS})
     #target_include_directories(relion_gpu_util PUBLIC ${TORCH_INCLUDE_DIRS})
-    target_include_directories(relion_gpu_util PUBLIC ${TinyDNN_INCLUDE_DIRS})
+    #target_include_directories(relion_gpu_util PUBLIC ${TinyDNN_INCLUDE_DIRS})
     target_link_libraries(relion_lib relion_gpu_util ${CUDA_CUFFT_LIBRARIES})# ${TORCH_LIBRARIES})
 
 endif(CUDA_FOUND)

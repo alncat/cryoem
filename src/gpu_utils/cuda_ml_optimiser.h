@@ -8,7 +8,7 @@
 #include "src/gpu_utils/cuda_backprojector.h"
 #include "src/gpu_utils/cuda_fft.h"
 #include "src/gpu_utils/cuda_benchmark_utils.h"
-#include "tiny_dnn/util/util.h"
+//#include "tiny_dnn/util/util.h"
 #include <stack>
 //#include <cufft.h>
 
