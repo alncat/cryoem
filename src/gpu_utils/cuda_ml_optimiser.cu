@@ -2791,7 +2791,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
             major_projections[(exp_iclass - sp.iclass_min)]->cp_to_host();
             major_projections[exp_iclass - sp.iclass_min]->streamSync();
-            //std::vector<tiny_dnn::vec_t> real_projections;
+            int total_real_projections_size = cudaMLO->transformer1.reals.getSize()*major_weights[exp_iclass - sp.iclass_min].size();
+            std::vector<float> real_projections(total_real_projections_size, 0);
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
                 std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
@@ -2841,6 +2842,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 ////copy to projection
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
+                    real_projections[t_j + t_i*cudaMLO->transformer1.reals.getSize()] = cudaMLO->transformer1.reals[t_j];
                 }
                 if(t_i == 0 && part_id == 148){
                     //save to image
@@ -2852,6 +2854,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 //real_projections.emplace_back(i_projection);
             }
             //pass to auto encoder
+            pthread_mutex_lock(&global_mutex);
+            train_a_batch(real_projections);
+            pthread_mutex_unlock(&global_mutex);
 
 
             //update ctf per particle,
