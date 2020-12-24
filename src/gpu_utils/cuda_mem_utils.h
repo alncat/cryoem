@@ -1172,6 +1172,12 @@ public:
 		cudaMemInit<T>( d_ptr, value, size, stream);
 	}
 
+    inline
+    void host_init(int value)
+    {
+        memset(h_ptr, value, sizeof(T)*size);
+    }
+
 	/**
 	 * Copy a number (size) of bytes to device stored in the host pointer
 	 */

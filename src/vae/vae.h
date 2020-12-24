@@ -24,7 +24,7 @@ class VAEImpl : public torch::nn::Module {
     torch::nn::Linear fc3;
     torch::nn::Conv2d cnv1, cnv2, cnv3, cnv4, cnv5;
     torch::nn::ConvTranspose2d uncnv1, uncnv2, uncnv3, uncnv4, uncnv5;
-    //torch::nn::BatchNorm2d bn1, bn2, bn3, unbn1, unbn2, unbn3;
+    //torch::nn::BatchNorm2d bn1, bn2, bn3, bn4, unbn1, unbn2, unbn3, unbn4;
     torch::nn::Flatten flt;
     int64_t output4_;
     //torch::nn::Unflatten unflt;

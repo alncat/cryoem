@@ -119,7 +119,7 @@ __global__ void cuda_kernel_wavg(
 
 			img_real = __ldg(&g_img_real[pixel]);
 			img_imag = __ldg(&g_img_imag[pixel]);
-            XFLOAT cur_ctf = __ldg(&g_ctfs[pixel]);
+            //XFLOAT cur_ctf = __ldg(&g_ctfs[pixel]);
 
 			for (unsigned long itrans = 0; itrans < translation_num; itrans++)
 			{
@@ -134,8 +134,8 @@ __global__ void cuda_kernel_wavg(
 					else
 						translatePixel(x, y,    g_trans_x[itrans], g_trans_y[itrans],                    img_real, img_imag, trans_real, trans_imag);
 
-					XFLOAT diff_real = ref_real*cur_ctf - trans_real;
-					XFLOAT diff_imag = ref_imag*cur_ctf - trans_imag;
+					//XFLOAT diff_real = ref_real*cur_ctf - trans_real;
+					//XFLOAT diff_imag = ref_imag*cur_ctf - trans_imag;
 
 					//s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
                     s_wdiff2s_parts[tid] += weight;
@@ -266,6 +266,8 @@ __global__ void cuda_kernel_wavg(
 			img_imag = __ldg(&g_img_imag[pixel]);
             XFLOAT real_diff = 0.;
             XFLOAT imag_diff = 0.;
+            XFLOAT t_ctf = __ldg(&g_ctfs[pixel]);
+            t_ctf /= part_scale;
 
 			for (unsigned long itrans = 0; itrans < translation_num; itrans++)
 			{
@@ -280,8 +282,8 @@ __global__ void cuda_kernel_wavg(
 					else
 						translatePixel(x, y,    g_trans_x[itrans], g_trans_y[itrans],                    img_real, img_imag, trans_real, trans_imag);
 
-					XFLOAT diff_real = ref_real - trans_real;
-					XFLOAT diff_imag = ref_imag - trans_imag;
+					XFLOAT diff_real = trans_real - ref_real*t_ctf;// - trans_real;
+					XFLOAT diff_imag = trans_imag - ref_imag*t_ctf;// - trans_imag;
 
 					//s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
                     real_diff += weight*diff_real;
@@ -294,7 +296,7 @@ __global__ void cuda_kernel_wavg(
             s_wdiff2s_parts[tid] *= (img_real*img_real + img_imag*img_imag);
 
             //orientation index
-            int ori_idx = g_ori_idx[bid];
+            int ori_idx = __float2int_rd(g_ori_idx[bid]);
             if(ori_idx >= 0){
                 //store projection to ori_idx
                 g_ori_proj[2*(ori_idx*image_size + pixel)] = real_diff;

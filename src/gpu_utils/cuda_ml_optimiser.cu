@@ -2713,11 +2713,15 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             }
 
             //std::cout << "sum_weight: " << op.sum_weight[ipart] << std::endl;
+            float max_major_weight = 0.;
             while(major_cnt < 4 && !pq.empty() && pq.top().first > 0.) {
+                if(max_major_weight < pq.top().first) max_major_weight = pq.top().first;
+                else if(max_major_weight > pq.top().first*1e2) break;
                 major_orientations[pq.top().second] = major_cnt;
                 major_weights.back().push_back(pq.top().first/op.sum_weight[ipart]);
                 //std::cout << "major_weights: " << major_weights.back().back() << std::endl;
                 major_cnt++;
+                //std::cout << pq.top().second << " " << pq.top().first << " " << major_cnt << std::endl;
                 pq.pop();
             }
             ////std::cout << "major_cnt: " << major_cnt << std::endl;
@@ -2745,6 +2749,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			======================================================*/
             //major_projections[exp_iclass - sp.iclass_min].put_on_device();
             major_projections[exp_iclass - sp.iclass_min]->device_alloc();
+            major_projections[exp_iclass - sp.iclass_min]->device_init(0);
+            major_projections[exp_iclass - sp.iclass_min]->streamSync();
 
 			long unsigned orientation_num(ProjectionData[ipart].orientation_num[exp_iclass]);
 
@@ -2798,6 +2804,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
                 unsigned xfsize = cudaMLO->transformer1.xFSize;
                 unsigned yfsize = cudaMLO->transformer1.yFSize;
+                cudaMLO->transformer1.fouriers.host_init(0);
                 //std::cout << xfsize << " " << yfsize << std::endl;
                 //std::cout << major_projections[exp_iclass - sp.iclass_min].getSize() << " " << image_size << " " << major_cnts[exp_iclass - sp.iclass_min] << std::endl;
                 int i_cls = exp_iclass - sp.iclass_min;
@@ -2827,6 +2834,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                 }
 
             //ifft on major_projection
+                cudaMLO->transformer1.fouriers.cp_to_device();
+                cudaMLO->transformer1.fouriers.streamSync();
                 cudaMLO->transformer1.backward();
 		        cudaMLO->transformer1.reals.streamSync();
                 ////center reals
@@ -2844,20 +2853,21 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
                     real_projections[t_j + t_i*cudaMLO->transformer1.reals.getSize()] = cudaMLO->transformer1.reals[t_j];
                 }
-                if(t_i == 0 && part_id == 148){
+                if(part_id == 188){
                     //save to image
                     Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
                     std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
-                    debug_img.write("debug_proj.mrc");
+                    debug_img.write("debug_proj"+std::to_string(t_i)+".mrc");
                 }
                 //emplace_back
                 //real_projections.emplace_back(i_projection);
             }
             //pass to auto encoder
-            pthread_mutex_lock(&global_mutex);
-            train_a_batch(real_projections);
-            pthread_mutex_unlock(&global_mutex);
-
+            if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5)) > 1.){
+                pthread_mutex_lock(&global_mutex);
+                train_a_batch(real_projections);
+                pthread_mutex_unlock(&global_mutex);
+            }
 
             //update ctf per particle,
             CTF new_ctf;
