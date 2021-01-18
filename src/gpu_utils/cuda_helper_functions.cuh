@@ -88,6 +88,7 @@ void runWavgKernel(
 		XFLOAT *sorted_weights,
         XFLOAT *ori_idx,
         XFLOAT *ori_proj,
+        XFLOAT *ori_imag,
 		XFLOAT *ctfs,
 		XFLOAT *wdiff2s_parts,
 		XFLOAT *wdiff2s_AA,

@@ -459,7 +459,7 @@ will still yield good performance and possibly a more stable execution. \n" << s
     MlOptimiser::initialiseGeneral(node->rank);
     //intialise vae model if not master
     if(!node->isMaster()) {
-        initialise_model_optimizer(mymodel.ori_size, 64, 16, 1e-6, node->rank);
+        initialise_model_optimizer(mymodel.ori_size, 64, 32, 1e-5, node->rank);
     }
 
     initialiseWorkLoad();

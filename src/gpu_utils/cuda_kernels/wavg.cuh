@@ -166,6 +166,7 @@ __global__ void cuda_kernel_wavg(
 		XFLOAT* g_weights,
         XFLOAT* g_ori_idx,
         XFLOAT* g_ori_proj,
+        XFLOAT* g_ori_image,
 		XFLOAT* g_ctfs,
 		XFLOAT *g_wdiff2s_parts,
 		XFLOAT *g_wdiff2s_AA,
@@ -266,6 +267,7 @@ __global__ void cuda_kernel_wavg(
 			img_imag = __ldg(&g_img_imag[pixel]);
             XFLOAT real_diff = 0.;
             XFLOAT imag_diff = 0.;
+            XFLOAT tot_weight = 0.;
             XFLOAT t_ctf = __ldg(&g_ctfs[pixel]);
             t_ctf /= part_scale;
 
@@ -282,25 +284,28 @@ __global__ void cuda_kernel_wavg(
 					else
 						translatePixel(x, y,    g_trans_x[itrans], g_trans_y[itrans],                    img_real, img_imag, trans_real, trans_imag);
 
-					XFLOAT diff_real = trans_real - ref_real*t_ctf;// - trans_real;
-					XFLOAT diff_imag = trans_imag - ref_imag*t_ctf;// - trans_imag;
+					//XFLOAT diff_real = trans_real - ref_real*t_ctf;//ref_real*t_ctf;// - trans_real;
+					//XFLOAT diff_imag = trans_imag - ref_imag*t_ctf;//ref_imag*t_ctf;// - trans_imag;
 
 					//s_wdiff2s_parts[tid] += weight * (diff_real*diff_real + diff_imag*diff_imag);
-                    real_diff += weight*diff_real;
-                    imag_diff += weight*diff_imag;
-                    s_wdiff2s_parts[tid] += weight;
+                    real_diff += weight*trans_real;
+                    imag_diff += weight*trans_imag;
+                    tot_weight += weight;
 					s_sumXA[tid] +=  weight * ( ref_real * trans_real + ref_imag * trans_imag);
 					s_sumA2[tid] +=  weight * ( ref_real*ref_real  +  ref_imag*ref_imag );
 				}
 			}
-            s_wdiff2s_parts[tid] *= (img_real*img_real + img_imag*img_imag);
+            if(tot_weight == 0.) continue;
+            s_wdiff2s_parts[tid] = tot_weight*(img_real*img_real + img_imag*img_imag);
 
             //orientation index
             int ori_idx = __float2int_rd(g_ori_idx[bid]);
             if(ori_idx >= 0){
                 //store projection to ori_idx
-                g_ori_proj[2*(ori_idx*image_size + pixel)] = real_diff;
-                g_ori_proj[2*(ori_idx*image_size + pixel) + 1] = imag_diff;
+                g_ori_proj[2*(ori_idx*image_size + pixel)] = ref_real*t_ctf*tot_weight;
+                g_ori_proj[2*(ori_idx*image_size + pixel) + 1] = ref_imag*t_ctf*tot_weight;
+                g_ori_image[2*(ori_idx*image_size + pixel)] = real_diff;
+                g_ori_image[2*(ori_idx*image_size + pixel) + 1] = imag_diff;
             }
 			cuda_atomic_add(&g_wdiff2s_XA[pixel], s_sumXA[tid]);
 			cuda_atomic_add(&g_wdiff2s_AA[pixel], s_sumA2[tid]);

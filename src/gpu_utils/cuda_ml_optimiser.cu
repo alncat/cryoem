@@ -302,9 +302,11 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
             //temp.streamSync();
 
 			CTIC(cudaMLO->timer,"norm_corr");
+            XFLOAT correction_factor = baseMLO->mymodel.avg_norm_correction/normcorr;//baseMLO->iter == 1 ? baseMLO->mymodel.avg_norm_correction/normcorr : 1.;
+            //if(baseMLO->iter == 1) DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) = 1.;
 			cuda_kernel_multi<<<STBsize,BLOCK_SIZE>>>(
 									~temp,
-									(XFLOAT)(baseMLO->mymodel.avg_norm_correction / normcorr),
+									(XFLOAT)correction_factor,//(XFLOAT)(baseMLO->mymodel.avg_norm_correction / normcorr),
 									img_size);
 			LAUNCH_PRIVATE_ERROR(cudaGetLastError(),cudaMLO->errorStatus);
 			temp.streamSync();
@@ -420,6 +422,7 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
 		size_t current_size_z = (cudaMLO->dataIs3D) ? baseMLO->mymodel.current_size : 1;
 
 		cudaMLO->transformer1.setSize(img().xdim,img().ydim,img().zdim);
+        cudaMLO->transformer2.setSize(img().xdim,img().ydim,img().zdim);
 
 		//FIXME What is this?
 //		deviceInitValue(cudaMLO->transformer1.reals, (XFLOAT)0.);
@@ -985,13 +988,14 @@ void getAllSquaredDifferencesCoarse(
 		}
 
 		XFLOAT scale_correction = baseMLO->do_scale_correction ? baseMLO->mymodel.scale_correction[group_id] : 1;
+        XFLOAT normcorr = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
 
 		MultidimArray<Complex > Fimg;
 		windowFourierTransform(op.Fimgs[ipart], Fimg, sp.current_image_size);
 
 		for (unsigned i = 0; i < image_size; i ++)
 		{
-			XFLOAT pixel_correction = 1.0/scale_correction;
+			XFLOAT pixel_correction = 1.0/(scale_correction);
 			if (baseMLO->do_ctf_correction && baseMLO->refs_are_ctf_corrected)
 			{
 				// if ctf[i]==0, pix_corr[i] becomes NaN.
@@ -1213,13 +1217,14 @@ void getAllSquaredDifferencesFine(unsigned exp_ipass,
 		}
 
 		XFLOAT scale_correction = baseMLO->do_scale_correction ? baseMLO->mymodel.scale_correction[group_id] : 1;
+        RFLOAT normcorr = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
 
 		MultidimArray<Complex > Fimg, Fimg_nomask;
 		windowFourierTransform(op.Fimgs[ipart], Fimg, sp.current_image_size);
 
 		for (unsigned i = 0; i < image_size; i ++)
 		{
-			XFLOAT pixel_correction = 1.0/scale_correction;
+			XFLOAT pixel_correction = 1.0/(scale_correction);
 			if (baseMLO->do_ctf_correction && baseMLO->refs_are_ctf_corrected)
 			{
 				// if ctf[i]==0, pix_corr[i] becomes NaN.
@@ -2070,8 +2075,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 	// For norm_correction and scale_correction of all particles of this ori_particle
 	std::vector<RFLOAT> exp_wsum_norm_correction;
 	std::vector<MultidimArray<RFLOAT> > exp_wsum_scale_correction_XA, exp_wsum_scale_correction_AA;
+    std::vector<RFLOAT> exp_AA, exp_XX;
 	std::vector<MultidimArray<RFLOAT> > thr_wsum_signal_product_spectra, thr_wsum_reference_power_spectra;
 	exp_wsum_norm_correction.resize(sp.nr_particles, 0.);
+    exp_AA.resize(sp.nr_particles, 0.);
+    exp_XX.resize(sp.nr_particles, 0.);
 
 	// For scale_correction
 	if (baseMLO->do_scale_correction)
@@ -2558,6 +2566,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 
 		if (baseMLO->do_scale_correction)
 		{
+            RFLOAT normcorr = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
 			part_scale = baseMLO->mymodel.scale_correction[group_id];
 			if (part_scale > 10000.)
 			{
@@ -2633,6 +2642,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
         CudaGlobalPtr<XFLOAT> major_orientations(ProjectionData[ipart].orientationNumAllClasses, cudaMLO->devBundle->allocator);
         std::vector<int> major_cnts;
         std::vector<std::unique_ptr<CudaGlobalPtr<XFLOAT>>> major_projections;
+        std::vector<std::unique_ptr<CudaGlobalPtr<XFLOAT>>> major_images;
         std::vector<std::vector<XFLOAT>> major_weights;
 
 		int classPos = 0;
@@ -2714,7 +2724,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 
             //std::cout << "sum_weight: " << op.sum_weight[ipart] << std::endl;
             float max_major_weight = 0.;
-            while(major_cnt < 4 && !pq.empty() && pq.top().first > 0.) {
+            while(major_cnt < 2 && !pq.empty() && pq.top().first > 0.) {
                 if(max_major_weight < pq.top().first) max_major_weight = pq.top().first;
                 else if(max_major_weight > pq.top().first*1e2) break;
                 major_orientations[pq.top().second] = major_cnt;
@@ -2727,6 +2737,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             ////std::cout << "major_cnt: " << major_cnt << std::endl;
             major_cnts.push_back(major_cnt);
             major_projections.push_back(std::unique_ptr<CudaGlobalPtr<XFLOAT>>(new CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator)));
+            major_images.push_back(std::unique_ptr<CudaGlobalPtr<XFLOAT>>(new CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator)));
 
 			classPos+=orientation_num*translation_num;
 			CTOC(cudaMLO->timer,"pre_wavg_map");
@@ -2750,7 +2761,10 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //major_projections[exp_iclass - sp.iclass_min].put_on_device();
             major_projections[exp_iclass - sp.iclass_min]->device_alloc();
             major_projections[exp_iclass - sp.iclass_min]->device_init(0);
-            major_projections[exp_iclass - sp.iclass_min]->streamSync();
+            //major_projections[exp_iclass - sp.iclass_min]->streamSync();
+            major_images[exp_iclass - sp.iclass_min]->device_alloc();
+            major_images[exp_iclass - sp.iclass_min]->device_init(0);
+            major_images[exp_iclass - sp.iclass_min]->streamSync();
 
 			long unsigned orientation_num(ProjectionData[ipart].orientation_num[exp_iclass]);
 
@@ -2772,6 +2786,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 					&sorted_weights.d_ptr[classPos],
                     ~major_orientations,
                     ~(*major_projections[exp_iclass - sp.iclass_min]),
+                    ~(*major_images[exp_iclass - sp.iclass_min]),
 					~ctfs,
 					~wdiff2s_sum,
 					&wdiff2s_AA(AAXA_pos),
@@ -2796,15 +2811,20 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //create a tensor to hold the projections
             DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
             major_projections[(exp_iclass - sp.iclass_min)]->cp_to_host();
-            major_projections[exp_iclass - sp.iclass_min]->streamSync();
+            //major_projections[exp_iclass - sp.iclass_min]->streamSync();
+            major_images[(exp_iclass - sp.iclass_min)]->cp_to_host();
+            major_images[exp_iclass - sp.iclass_min]->streamSync();
             int total_real_projections_size = cudaMLO->transformer1.reals.getSize()*major_weights[exp_iclass - sp.iclass_min].size();
             std::vector<float> real_projections(total_real_projections_size, 0);
+            std::vector<float> real_images(total_real_projections_size, 0);
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
             for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
                 std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
+                std::vector<float> i_image(cudaMLO->transformer1.reals.getSize(), 0.);
                 unsigned xfsize = cudaMLO->transformer1.xFSize;
                 unsigned yfsize = cudaMLO->transformer1.yFSize;
                 cudaMLO->transformer1.fouriers.host_init(0);
+                cudaMLO->transformer2.fouriers.host_init(0);
                 //std::cout << xfsize << " " << yfsize << std::endl;
                 //std::cout << major_projections[exp_iclass - sp.iclass_min].getSize() << " " << image_size << " " << major_cnts[exp_iclass - sp.iclass_min] << std::endl;
                 int i_cls = exp_iclass - sp.iclass_min;
@@ -2816,14 +2836,13 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         std::cout << "wrong!" << std::endl;
                     float weight = major_weights[i_cls][t_i];
                     //major_projections[(exp_iclass - sp.iclass_min)][index] = major_projections[exp_iclass-sp.iclass_min][index]/major_weights[exp_iclass - sp.iclass_min][t_i];
-                    float real = (*major_projections[i_cls])[index];
-                    float imag = (*major_projections[i_cls])[index+1];
-                    real /= weight;
-                    imag /= weight;
+                    float real = (*major_projections[i_cls])[index]/weight;
+                    float imag = (*major_projections[i_cls])[index+1]/weight;
+                    float real_im = (*major_images[i_cls])[index]/weight;
+                    float imag_im = (*major_images[i_cls])[index+1]/weight;
                     //major_projections[(exp_iclass - sp.iclass_min)][index+1] = major_projections[exp_iclass-sp.iclass_min][index + 1]/major_weights[exp_iclass - sp.iclass_min][t_i];
                     //major_projections[i_cls][index] = real/weight;
                     //major_projections[exp_iclass - sp.iclass_min][index+1] = imag/weight;
-                    //set the value of tensor
                     //get the logical index
                     int y = t_j / projKernel.imgX;
                     int x = t_j % projKernel.imgX;
@@ -2831,13 +2850,19 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                     if(y < 0) y += yfsize;
                     cudaMLO->transformer1.fouriers[y*xfsize + x].x = real;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j];
                     cudaMLO->transformer1.fouriers[y*xfsize + x].y = imag;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1];
+                    cudaMLO->transformer2.fouriers[y*xfsize + x].x = real_im;
+                    cudaMLO->transformer2.fouriers[y*xfsize + x].y = imag_im;
                 }
 
             //ifft on major_projection
                 cudaMLO->transformer1.fouriers.cp_to_device();
                 cudaMLO->transformer1.fouriers.streamSync();
                 cudaMLO->transformer1.backward();
-		        cudaMLO->transformer1.reals.streamSync();
+		        //cudaMLO->transformer1.reals.streamSync();
+                cudaMLO->transformer2.fouriers.cp_to_device();
+                cudaMLO->transformer2.fouriers.streamSync();
+                cudaMLO->transformer2.backward();
+		        cudaMLO->transformer2.reals.streamSync();
                 ////center reals
                 runCenterFFT(
                         cudaMLO->transformer1.reals,
@@ -2847,25 +2872,38 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         false
                         );
                 cudaMLO->transformer1.reals.cp_to_host();
-                cudaMLO->transformer1.reals.streamSync();
+                //cudaMLO->transformer1.reals.streamSync();
+                runCenterFFT(
+                        cudaMLO->transformer2.reals,
+                        (int)cudaMLO->transformer2.xSize,
+                        (int)cudaMLO->transformer2.ySize,
+                        (int)cudaMLO->transformer2.zSize,
+                        false
+                        );
+                cudaMLO->transformer2.reals.cp_to_host();
+                cudaMLO->transformer2.reals.streamSync();
                 ////copy to projection
                 for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
                     i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
+                    i_image[t_j] = cudaMLO->transformer2.reals[t_j];
                     real_projections[t_j + t_i*cudaMLO->transformer1.reals.getSize()] = cudaMLO->transformer1.reals[t_j];
+                    real_images[t_j + t_i*cudaMLO->transformer2.reals.getSize()] = cudaMLO->transformer2.reals[t_j];
                 }
-                if(part_id == 188){
+                if(part_id == 1688){
                     //save to image
                     Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
                     std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
-                    debug_img.write("debug_proj"+std::to_string(t_i)+".mrc");
+                    debug_img.write("prj"+std::to_string(t_i)+".mrc");
+                    std::copy(i_image.begin(), i_image.end(), debug_img.data.data);
+                    debug_img.write("ref"+std::to_string(t_i)+".mrc");
                 }
                 //emplace_back
                 //real_projections.emplace_back(i_projection);
             }
             //pass to auto encoder
-            if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5)) > 1.){
+            if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/2.8)) > 1.){
                 pthread_mutex_lock(&global_mutex);
-                train_a_batch(real_projections);
+                train_a_batch(real_images, part_id);
                 pthread_mutex_unlock(&global_mutex);
             }
 
@@ -3224,7 +3262,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         for (long int j = 0; j < image_size; j++){
                             wdiff2s_AA[j] *= Fctf.data[j]*Fctf.data[j];
                             wdiff2s_XA[j] *= Fctf.data[j];
+                            exp_AA[ipart] += wdiff2s_AA[j];
+                            exp_XX[ipart] += wdiff2s_sum[j];
+                            //RFLOAT tmp = wdiff2s_sum[j];
                             wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
+                            //wdiff2s_XA[j] = tmp;
                         }
                         //std::cout << "diff_corr :" << (correlation - old_correlation)/correlation << std::endl;
                         ctfs.cp_to_device();
@@ -3237,7 +3279,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         for (long int j = 0; j < image_size; j++){
                             wdiff2s_AA[j] *= op.Fctfs[ipart].data[j]*op.Fctfs[ipart].data[j];
                             wdiff2s_XA[j] *= op.Fctfs[ipart].data[j];
+                            exp_AA[ipart] += wdiff2s_AA[j];
+                            exp_XX[ipart] += wdiff2s_sum[j];
+                            RFLOAT tmp = wdiff2s_sum[j];
                             wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
+                            wdiff2s_XA[j] = tmp;
                         }
                     }
                 }//toggle ctf refinement when refinement stabilized
@@ -3246,7 +3292,11 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                     for (long int j = 0; j < image_size; j++){
                         wdiff2s_AA[j] *= op.Fctfs[ipart].data[j]*op.Fctfs[ipart].data[j];
                         wdiff2s_XA[j] *= op.Fctfs[ipart].data[j];
+                        exp_AA[ipart] += wdiff2s_AA[j];
+                        exp_XX[ipart] += wdiff2s_sum[j];
+                        RFLOAT tmp = wdiff2s_sum[j];
                         wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
+                        wdiff2s_XA[j] = tmp;
                     }
                 }
             }
@@ -3323,8 +3373,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			for (long int j = 0; j < image_size; j++)
 			{
 				int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-				if (ires > -1 && baseMLO->do_scale_correction &&
-						DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], ires) > 3.)
+				if (ires > -1 && baseMLO->do_scale_correction)// &&
+						//DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], ires) > 3.)
 				{
 					DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) += wdiff2s_AA[AAXA_pos+j];
 					DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) += wdiff2s_XA[AAXA_pos+j];
@@ -3372,14 +3422,20 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		if (baseMLO->do_norm_correction)
 		{
 			RFLOAT old_norm_correction = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
+            if(baseMLO->iter == 1) {
+                //old_norm_correction /= baseMLO->mymodel.avg_norm_correction;
+                //old_norm_correction = 1.;
+                //old_norm_correction = 1./old_norm_correction;
+            }
+            //RFLOAT normcorr = sqrt(exp_XX[ipart]/exp_AA[ipart])*old_norm_correction;
 			old_norm_correction /= baseMLO->mymodel.avg_norm_correction;
 			// The factor two below is because exp_wsum_norm_correctiom is similar to sigma2_noise, which is the variance for the real/imag components
 			// The variance of the total image (on which one normalizes) is twice this value!
 			RFLOAT normcorr = old_norm_correction * sqrt(exp_wsum_norm_correction[ipart] * 2.);
-			thr_avg_norm_correction += normcorr;
+			thr_avg_norm_correction += normcorr*normcorr;
 
 			// Now set the new norm_correction in the relevant position of exp_metadata
-			DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) = normcorr;
+			DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) = normcorr;// + 0.9*old_norm_correction;
 
 
 			// Print warning for strange norm-correction values
@@ -3396,7 +3452,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		if (baseMLO->do_scale_correction)
 		{
 			// Divide XA by the old scale_correction and AA by the square of that, because was incorporated into Fctf
-			exp_wsum_scale_correction_XA[ipart] /= baseMLO->mymodel.scale_correction[group_id];
+			//exp_wsum_scale_correction_XA[ipart] /= baseMLO->mymodel.scale_correction[group_id];
 			exp_wsum_scale_correction_AA[ipart] /= baseMLO->mymodel.scale_correction[group_id] * baseMLO->mymodel.scale_correction[group_id];
             
 			thr_wsum_signal_product_spectra[group_id] += exp_wsum_scale_correction_XA[ipart];

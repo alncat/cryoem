@@ -160,6 +160,8 @@ void buildCorrImage(MlOptimiser *baseMLO, OptimisationParamters &op, CudaGlobalP
 	// rather where we apply the additional correction to make the GPU-specific arithmetic equal
 	// to the CPU method)
 	XFLOAT myscale = baseMLO->mymodel.scale_correction[group_id];
+    XFLOAT norm_correction = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
+    //myscale *= norm_correction;
 	if (baseMLO->do_scale_correction)
 		for(int i = 0; i < corr_img.getSize(); i++)
 			corr_img[i] *= myscale * myscale;
@@ -283,6 +285,7 @@ void runWavgKernel(
 		XFLOAT *sorted_weights,
         XFLOAT *ori_idx,
         XFLOAT *ori_proj,
+        XFLOAT *ori_img,
 		XFLOAT *ctfs,
 		XFLOAT *wdiff2s_parts,
 		XFLOAT *wdiff2s_AA,
@@ -408,6 +411,7 @@ void runWavgKernel(
 				sorted_weights,
                 ori_idx,
                 ori_proj,
+                ori_img,
 				ctfs,
 				wdiff2s_parts,
 				wdiff2s_AA,

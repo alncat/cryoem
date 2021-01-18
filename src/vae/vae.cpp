@@ -2,26 +2,38 @@
 #include "vae.h"
 #include <utility>
 #include "api.h"
+#include "src/image.h"
 //convolution size: (input_size + 2*padding - kernel_size)/stride + 1
 //convolution transpose size: (input_size - 1)*stride - 2*padding + (kernel_size - 1) + 1
 
 VAEImpl::VAEImpl(int64_t h_dim, int64_t output1, int64_t output2, int64_t output3, int64_t output4, int64_t z_dim)
-    : fc1(output4*16, z_dim),
-      fc2(output4*16, z_dim),
-      fc3(z_dim, output4*16),
-      cnv1(torch::nn::Conv2dOptions(1, output1, 5).stride(2)),//240->118
-      cnv2(torch::nn::Conv2dOptions(output1, output2, 5).stride(2)),//57
-      cnv3(torch::nn::Conv2dOptions(output2, output3, 5).stride(2)),//27
-      cnv4(torch::nn::Conv2dOptions(output3, output4, 5).stride(2)),//12.padding(1)),
-      cnv5(torch::nn::Conv2dOptions(output4, output4, 5).stride(2)),//4
+    : fc1(output4*9, z_dim),
+      fc2(output4*9, z_dim),
+      fc3(z_dim, output4*9),
+      bn(output4),
+      cnv1(cnvBlock(1, output1, 6, 3)),
+      cnv2(cnvBlock(output1, output2, 5, 2)),
+      cnv3(cnvBlock(output2, output3, 4, 2)),
+      cnv4(cnvBlock(output3, output4, 4, 2)),
+      cnv5(cnvBlock(output4, output4, 4, 2)),
+      uncnv5(uncnvBlock(output4, output4, 4, 2)),
+      uncnv4(uncnvBlock(output4, output3, 4, 2)),
+      uncnv3(uncnvBlock(output3, output2, 4, 2)),
+      uncnv2(uncnvBlock(output2, output1, 5, 2)),
+      uncnv1(uncnvBlock(output1, 1, 6, 3)),
+      //cnv1(torch::nn::Conv2dOptions(1, output1, 6).stride(3)),//240->79
+      //cnv2(torch::nn::Conv2dOptions(output1, output2, 5).stride(2)),//38
+      //cnv3(torch::nn::Conv2dOptions(output2, output3, 4).stride(2)),//18
+      //cnv4(torch::nn::Conv2dOptions(output3, output4, 4).stride(2)),//8.padding(1)),
+      //cnv5(torch::nn::Conv2dOptions(output4, output4, 4).stride(2)),//3
       //cnv6(torch::nn::Conv2dOptions(output4, output4, 3).stride(1)),//2
       flt(torch::nn::FlattenOptions().start_dim(1)),
       //unflt(torch::nn::UnflattenOptions(1, {output4, h_dim, h_dim}))
-      uncnv5(torch::nn::ConvTranspose2dOptions(output4, output4, 6).stride(2)),//12
-      uncnv4(torch::nn::ConvTranspose2dOptions(output4, output3, 6).stride(2)),//28
-      uncnv3(torch::nn::ConvTranspose2dOptions(output3, output2, 5).stride(2)),//59
-      uncnv2(torch::nn::ConvTranspose2dOptions(output2, output1, 5).stride(2)),//121
-      uncnv1(torch::nn::ConvTranspose2dOptions(output1, 1, 4).stride(2).padding(2)),//240
+      //uncnv5(torch::nn::ConvTranspose2dOptions(output4, output4, 4).stride(2)),//8
+      //uncnv4(torch::nn::ConvTranspose2dOptions(output4, output3, 4).stride(2)),//18
+      //uncnv3(torch::nn::ConvTranspose2dOptions(output3, output2, 4).stride(2)),//38
+      //uncnv2(torch::nn::ConvTranspose2dOptions(output2, output1, 5).stride(2)),//79
+      //uncnv1(torch::nn::ConvTranspose2dOptions(output1, 1, 6).stride(3)),//.padding(2)),//240
       output4_(output4)
       {
     register_module("fc1", fc1);
@@ -37,16 +49,17 @@ VAEImpl::VAEImpl(int64_t h_dim, int64_t output1, int64_t output2, int64_t output
     register_module("uncnv3", uncnv3);
     register_module("uncnv4", uncnv4);
     register_module("uncnv5", uncnv5);
+    register_module("bn", bn);
     register_module("flt", flt);
     //register_module("unflt", unflt);
 }
 
 std::pair<torch::Tensor, torch::Tensor> VAEImpl::encode(torch::Tensor x) {
-    x = torch::relu(cnv1(x));
-    x = torch::relu(cnv2(x));
-    x = torch::relu(cnv3(x));
-    x = torch::relu(cnv4(x));
-    x = torch::relu(cnv5(x));
+    x = cnv1->forward(x);
+    x = cnv2->forward(x);
+    x = cnv3->forward(x);
+    x = cnv4->forward(x);
+    x = cnv5->forward(x);
     x = flt(x);
     return {fc1->forward(x), fc2->forward(x)};
 }
@@ -64,13 +77,13 @@ torch::Tensor VAEImpl::reparameterize(torch::Tensor mu, torch::Tensor log_var) {
 }
 
 torch::Tensor VAEImpl::decode(torch::Tensor z) {
-    auto h = torch::nn::functional::relu(fc3->forward(z));
-    h = h.view({-1,output4_,4,4});
-    h = torch::relu(uncnv5(h));
-    h = torch::relu(uncnv4(h));
-    h = torch::relu(uncnv3(h));
-    h = torch::relu(uncnv2(h));
-    h = 5.*torch::tanh(uncnv1(h));
+    auto h = fc3->forward(z);
+    h = h.view({-1,output4_,3,3});
+    h = uncnv5->forward(h);
+    h = uncnv4->forward(h);
+    h = uncnv3->forward(h);
+    h = uncnv2->forward(h);
+    h = uncnv1->forward(h);
     return h;
 }
 
@@ -91,14 +104,14 @@ static int vae_rank = 0;
 
 void initialise_model_optimizer(int image_size, int h_dim, int z_dim, float learning_rate, int rank){
     vae_image_size = image_size;
-    vae_model = std::make_unique<VAE>(1, 8, 16, 32, 64, z_dim);
+    vae_model = std::make_unique<VAE>(1, 32, 32, 64, 64, z_dim);
     torch::Device device(torch::kCPU);
     (*vae_model)->to(device);
     vae_optimizer = std::make_unique<torch::optim::Adam>((*vae_model)->parameters(), torch::optim::AdamOptions(learning_rate));
     vae_rank = rank;
 }
 
-int train_a_batch(std::vector<float> &data){
+int train_a_batch(std::vector<float> &data, int part_id){
     torch::set_num_threads(20);
     (*vae_model)->train();
     auto options = torch::TensorOptions().dtype(torch::kFloat32);
@@ -135,6 +148,16 @@ int train_a_batch(std::vector<float> &data){
         //save model
         std::string model_path = "model" + std::to_string(vae_rank) + ".pt";
         torch::save(*vae_model, model_path);
+    }
+    if(vae_index % 5000 == 0){
+        //save images
+        auto input_image = torch_real_projections.index({0});
+        Image<float> debug_img(vae_image_size, vae_image_size);
+        memcpy(debug_img.data.data, input_image.data_ptr<float>(), input_image.numel()*sizeof(float));
+        debug_img.write("tmp"+std::to_string(vae_rank)+"/input"+std::to_string(part_id)+".mrc");
+        auto output_image =output.reconstruction.index({0});
+        memcpy(debug_img.data.data, output_image.data_ptr<float>(), output_image.numel()*sizeof(float));
+        debug_img.write("tmp"+std::to_string(vae_rank)+"/output"+std::to_string(part_id)+".mrc");
     }
 
 }

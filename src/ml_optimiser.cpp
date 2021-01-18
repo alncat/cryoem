@@ -2068,13 +2068,13 @@ void MlOptimiser::setSigmaNoiseEstimatesAndSetAverageImage(MultidimArray<RFLOAT>
 		// Calculate power spectrum of the average image
 		MultidimArray<RFLOAT> spect;
 		getSpectrum(Mavg, spect, POWER_SPECTRUM);
-		spect /= 2.; // because of 2-dimensionality of the complex plane
+		//spect /= 2.; // because of 2-dimensionality of the complex plane
 		spect.resize(mymodel.sigma2_noise[0]);
 
 		for (int igroup = 0; igroup < wsum_model.nr_groups; igroup++)
 		{
 			// Factor 2 because of 2-dimensionality of the complex plane
-			mymodel.sigma2_noise[igroup] = wsum_model.sigma2_noise[igroup] / ( 2. * wsum_model.sumw_group[igroup] );
+			mymodel.sigma2_noise[igroup] = wsum_model.sigma2_noise[igroup] / ( wsum_model.sumw_group[igroup] );//2
 
 			// Now subtract power spectrum of the average image from the average power spectrum of the individual images
 			mymodel.sigma2_noise[igroup] -= spect;
@@ -3679,7 +3679,7 @@ void MlOptimiser::maximizationOtherParameters()
 	if (do_norm_correction)
 	{
 		mymodel.avg_norm_correction *= mu;
-		mymodel.avg_norm_correction += (1. - mu) * wsum_model.avg_norm_correction / sum_weight;
+		mymodel.avg_norm_correction += (1. - mu) * sqrt(wsum_model.avg_norm_correction / sum_weight);
 	}
 
 	if (do_scale_correction && !((iter==1 && do_firstiter_cc) || do_always_cc) )
@@ -3690,7 +3690,7 @@ void MlOptimiser::maximizationOtherParameters()
 			RFLOAT sumXA = wsum_model.wsum_signal_product_spectra[igroup].sum();
 			RFLOAT sumAA = wsum_model.wsum_reference_power_spectra[igroup].sum();
 			if (sumAA > 0.)
-				mymodel.scale_correction[igroup] += (1. - mu) * sumXA / sumAA;
+				mymodel.scale_correction[igroup] += (1. - mu) * sqrt(sumXA / sumAA);
 			else
 				mymodel.scale_correction[igroup] += (1. - mu);
 		}
@@ -3719,7 +3719,10 @@ void MlOptimiser::maximizationOtherParameters()
 		avg_scale_correction /= nr_part;
 		for (int igroup = 0; igroup < mymodel.nr_groups; igroup++)
 		{
-			mymodel.scale_correction[igroup] /= avg_scale_correction;
+            //std::cout << mymodel.scale_correction[igroup] << std::endl;
+            //if(iter == 1)
+			    mymodel.scale_correction[igroup] /= avg_scale_correction;
+            //mymodel.scale_correction[igroup] = 0.5*mymodel.scale_correction[igroup] + 0.5;
 //#define DEBUG_UPDATE_SCALE
 #ifdef DEBUG_UPDATE_SCALE
 			if (verb > 0)
@@ -3814,9 +3817,10 @@ void MlOptimiser::maximizationOtherParameters()
 				FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mymodel.sigma2_noise[igroup])
 				{
 					DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) *= mu;
+                    // luo: no need to divide by 2
 					DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) +=
 							(1. - mu) * DIRECT_MULTIDIM_ELEM(wsum_model.sigma2_noise[igroup], n ) /
-								(2. * wsum_model.sumw_group[igroup] * DIRECT_MULTIDIM_ELEM(Npix_per_shell, n));
+								(wsum_model.sumw_group[igroup] * DIRECT_MULTIDIM_ELEM(Npix_per_shell, n));//*2
 					// Watch out for all-zero sigma2 in case of CTF-premultiplication!
 					if (ctf_premultiplied)
 						DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) = XMIPP_MAX(DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n), 1e-15);
@@ -7753,7 +7757,7 @@ void MlOptimiser::calculateExpectedAngularErrors(long int my_first_ori_particle,
 							int ires = DIRECT_MULTIDIM_ELEM(*myMresol, n);
 							if (ires > 0)
 							{
-								my_snr += norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / (2 * sigma2_fudge * mymodel.sigma2_noise[group_id](ires) );
+								my_snr += norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / (sigma2_fudge * mymodel.sigma2_noise[group_id](ires) );//2
 							}
 						}
 //#define DEBUG_ANGACC
@@ -7809,7 +7813,7 @@ void MlOptimiser::calculateExpectedAngularErrors(long int my_first_ori_particle,
 								int ires = DIRECT_MULTIDIM_ELEM(*myMresol, n);
 								if (ires > 0)
 									mymodel.orientability_contrib[iclass](ires) +=
-											norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / ( (2 * sigma2_fudge * mymodel.sigma2_noise[group_id](ires) ) );
+											norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / ( (sigma2_fudge * mymodel.sigma2_noise[group_id](ires) ) );
 							}
 						}
 
