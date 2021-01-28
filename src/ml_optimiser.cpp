@@ -3679,7 +3679,7 @@ void MlOptimiser::maximizationOtherParameters()
 	if (do_norm_correction)
 	{
 		mymodel.avg_norm_correction *= mu;
-		mymodel.avg_norm_correction += (1. - mu) * sqrt(wsum_model.avg_norm_correction / sum_weight);
+		mymodel.avg_norm_correction += (1. - mu) * (wsum_model.avg_norm_correction / sum_weight);
 	}
 
 	if (do_scale_correction && !((iter==1 && do_firstiter_cc) || do_always_cc) )
@@ -3690,7 +3690,7 @@ void MlOptimiser::maximizationOtherParameters()
 			RFLOAT sumXA = wsum_model.wsum_signal_product_spectra[igroup].sum();
 			RFLOAT sumAA = wsum_model.wsum_reference_power_spectra[igroup].sum();
 			if (sumAA > 0.)
-				mymodel.scale_correction[igroup] += (1. - mu) * sqrt(sumXA / sumAA);
+				mymodel.scale_correction[igroup] += (1. - mu) * (sumXA / sumAA);
 			else
 				mymodel.scale_correction[igroup] += (1. - mu);
 		}

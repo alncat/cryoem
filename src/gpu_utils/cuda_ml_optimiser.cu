@@ -3258,7 +3258,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         }
                     }
                     //only update ctf when correlation improved
-                    if(true){//correlation > old_correlation) {
+                    if(correlation > old_correlation) {
                         for (long int j = 0; j < image_size; j++){
                             wdiff2s_AA[j] *= Fctf.data[j]*Fctf.data[j];
                             wdiff2s_XA[j] *= Fctf.data[j];
@@ -3266,7 +3266,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             exp_XX[ipart] += wdiff2s_sum[j];
                             //RFLOAT tmp = wdiff2s_sum[j];
                             wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
-                            //wdiff2s_XA[j] = tmp;
+                            wdiff2s_XA[j] = fabs(wdiff2s_XA[j]);//tmp;
                         }
                         //std::cout << "diff_corr :" << (correlation - old_correlation)/correlation << std::endl;
                         ctfs.cp_to_device();
@@ -3281,9 +3281,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             wdiff2s_XA[j] *= op.Fctfs[ipart].data[j];
                             exp_AA[ipart] += wdiff2s_AA[j];
                             exp_XX[ipart] += wdiff2s_sum[j];
-                            RFLOAT tmp = wdiff2s_sum[j];
+                            //RFLOAT tmp = wdiff2s_sum[j];
                             wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
-                            wdiff2s_XA[j] = tmp;
+                            wdiff2s_XA[j] = fabs(wdiff2s_XA[j]);//tmp;
                         }
                     }
                 }//toggle ctf refinement when refinement stabilized
@@ -3294,9 +3294,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         wdiff2s_XA[j] *= op.Fctfs[ipart].data[j];
                         exp_AA[ipart] += wdiff2s_AA[j];
                         exp_XX[ipart] += wdiff2s_sum[j];
-                        RFLOAT tmp = wdiff2s_sum[j];
+                        //RFLOAT tmp = wdiff2s_sum[j];
                         wdiff2s_sum[j] = wdiff2s_sum[j] - 2*wdiff2s_XA[j] + wdiff2s_AA[j];
-                        wdiff2s_XA[j] = tmp;
+                        wdiff2s_XA[j] = fabs(wdiff2s_XA[j]);//tmp;
                     }
                 }
             }
@@ -3373,8 +3373,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 			for (long int j = 0; j < image_size; j++)
 			{
 				int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-				if (ires > -1 && baseMLO->do_scale_correction)// &&
-						//DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], ires) > 3.)
+				if (ires > -1 && baseMLO->do_scale_correction &&
+						DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], ires) > 0.167)
 				{
 					DIRECT_A1D_ELEM(exp_wsum_scale_correction_AA[ipart], ires) += wdiff2s_AA[AAXA_pos+j];
 					DIRECT_A1D_ELEM(exp_wsum_scale_correction_XA[ipart], ires) += wdiff2s_XA[AAXA_pos+j];
@@ -3422,17 +3422,12 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		if (baseMLO->do_norm_correction)
 		{
 			RFLOAT old_norm_correction = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
-            if(baseMLO->iter == 1) {
-                //old_norm_correction /= baseMLO->mymodel.avg_norm_correction;
-                //old_norm_correction = 1.;
-                //old_norm_correction = 1./old_norm_correction;
-            }
             //RFLOAT normcorr = sqrt(exp_XX[ipart]/exp_AA[ipart])*old_norm_correction;
 			old_norm_correction /= baseMLO->mymodel.avg_norm_correction;
 			// The factor two below is because exp_wsum_norm_correctiom is similar to sigma2_noise, which is the variance for the real/imag components
 			// The variance of the total image (on which one normalizes) is twice this value!
 			RFLOAT normcorr = old_norm_correction * sqrt(exp_wsum_norm_correction[ipart] * 2.);
-			thr_avg_norm_correction += normcorr*normcorr;
+			thr_avg_norm_correction += normcorr;
 
 			// Now set the new norm_correction in the relevant position of exp_metadata
 			DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM) = normcorr;// + 0.9*old_norm_correction;
@@ -3452,7 +3447,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 		if (baseMLO->do_scale_correction)
 		{
 			// Divide XA by the old scale_correction and AA by the square of that, because was incorporated into Fctf
-			//exp_wsum_scale_correction_XA[ipart] /= baseMLO->mymodel.scale_correction[group_id];
+			exp_wsum_scale_correction_XA[ipart] /= baseMLO->mymodel.scale_correction[group_id];
 			exp_wsum_scale_correction_AA[ipart] /= baseMLO->mymodel.scale_correction[group_id] * baseMLO->mymodel.scale_correction[group_id];
             
 			thr_wsum_signal_product_spectra[group_id] += exp_wsum_scale_correction_XA[ipart];

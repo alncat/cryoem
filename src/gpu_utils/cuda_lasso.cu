@@ -62,7 +62,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     //std::cout << "weight " << weight.getSize() << ", " << Fconv.getSize()<< std::endl;
     RFLOAT fconv_norm = 0.;
     XFLOAT yob_norm = 0.;
-    int median_size = img_size_h/16;
+    int median_size = img_size_h>>4;
     int sparse_count = 0;
 
     if(do_nag) {
@@ -72,11 +72,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
             //transformer.fouriers[i].y = Fconv.data[i].imag;
             yob[i] = Fconv.data[i];
             fconv_norm += Fconv.data[i]*Fconv.data[i];
-            if(pq.size() < median_size) pq.push(yob[i]);
-            else if(pq.top() < yob[i]) {
-                pq.pop();
-                pq.push(yob[i]);
-            }
+            
             yob[i] += lambda*((XFLOAT)vol_out.data[i]);
             //std::cout << yob[i] << std::endl;
         }
@@ -96,16 +92,22 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
         //momentum.device_init(0.f);
         //vol_out is of even size
         FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY3D(vol_out){
+            size_t index = k*Y*X + i*X + j;
             if((k < ZZ || k >= Z - ZZ) &&
                (i < YY || i >= Y - YY) &&
                (j < XX || j >= X - XX)){
                 img[k*Y*X + i*X + j] = DIRECT_A3D_ELEM(vol_out, k, i, j);
-                if(img[k*Y*X + i*X + j] > 1.e-3) {
+                if(abs(img[index]) > 1.e-3) {
                     sparse_count += 1;
                 } else {
                     //img[k*Y*X + i*X + j] = 0.;
                 }
-                yob_norm += (img[k*Y*X + i*X + j]*img[k*Y*X + i*X + j]);
+                yob_norm += (img[index]*img[index]);
+                if(pq.size() < median_size) pq.push(abs(img[index]));
+                else if(pq.top() < abs(img[index])) {
+                    pq.pop();
+                    pq.push(abs(img[index]));
+                }
             } else {
                 img[k*Y*X + i*X + j] = 0.;
             }
@@ -125,12 +127,12 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     }
 
     //adjust median according to sparseness count
-    //if(sparse_count*0.5 < median_size){
-    //    int new_median_size = sparse_count*0.5;
-    //    for(int i = 0; i < median_size - new_median_size; i++){
-    //        pq.pop();
-    //    }
-    //}
+    if(sparse_count/10 < median_size){
+        int new_median_size = sparse_count/10;
+        for(int i = 0; i < median_size - new_median_size; i++){
+            pq.pop();
+        }
+    }
     std::cout << "median: " << pq.top() << " pq_fraction: " << pq.size()/XFLOAT(img_size_h) << " sparseness: " << sparse_count/XFLOAT(img_size_h) << std::endl;
     //yob.cp_to_device();
     yob.set_read_only();
@@ -179,12 +181,14 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     img.streamSync();
     weight.cp_to_device();
     yob_norm /= img_size_h;
-    //yob_norm = sqrt(yob_norm);
+    yob_norm = sqrt(yob_norm);
     //eps = yob_norm*1.;
     //eps = max(pq.top(), 0.1);
     //eps = 0.1;
+    //set eps to be the top 1/8
+    XFLOAT tv_log_eps = epsp;///eps*pq.top();
+    //eps = pq.top();
     XFLOAT tv_eps = 1./sqrt(normalise);//0.00005;
-    XFLOAT tv_log_eps = eps;
     int FBsize = (int) ceilf((float)transformer.fouriers.getSize()/(float)BLOCK_SIZE);
     int imgBsize = (int) ceilf((float)img_size_h/(float)BLOCK_SIZE);
     int imgBFsize = (int) ceilf((float)img.getSize()/(float)BLOCK_SIZE);
@@ -214,7 +218,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     for(int eps_i = 0; eps_i < 2; eps_i++){
         //eps = 0.05/(eps_i+1);
         //eps = 0.01;
-        tv_log_eps = epsp;//eps*2;
+        //tv_log_eps = epsp;//eps*2;
         tv_alpha = alpha/(eps_i+1.)*fconv_norm*eps;//sqrt(normalise);//fconv_norm*eps/3;
         for(int beta_i = 0; beta_i < 5; beta_i++){
             tv_beta = beta/(eps_i+1.)*(1. - float(beta_i)/5.)*fconv_norm*tv_log_eps;//sqrt(normalise);//fconv_norm*eps/3;
