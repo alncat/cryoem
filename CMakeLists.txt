@@ -7,6 +7,7 @@ set(RELION_CMAKE_MINIMUM_REQUIRED_VERSION "2.8.12")
 #endif()
 project(Relion)
 
+enable_language(CUDA)
 # Use new policy for OS X @rpath
 if(POLICY CMP0042)
     cmake_policy(SET CMP0042 NEW)
@@ -71,6 +72,7 @@ SET(CMAKE_C_COMPILER "${CMAKE_C_COMPILER} -g -fPIC")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g -fPIC")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g")
 SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14 -g")
+add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 
 # ------------------OPTIONS WHICH ARE NEEDED TO SET BUILD-TYPES (COMPILATION FLAGS)--
 # ------------------------------------------------------------------------CUDA-ARCH--
@@ -120,6 +122,8 @@ if(CUDA)
     # -----------------------------------------------------------------------------CUDA--
     # DOC: http://www.cmake.org/cmake/help/v3.0/module/FindCUDA.html
     FIND_PACKAGE(CUDA)
+    string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_61,code=sm_61")
+    #find_package(CUDAToolkit)
 endif()
 
 if(CUDA_FOUND)

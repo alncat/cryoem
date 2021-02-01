@@ -104,7 +104,7 @@ endif()
 
 #target_include_directories(vae_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
 #target_include_directories(relion_lib PUBLIC ${TinyDNN_INCLUDE_DIRS})
-message("${TinyDNN_INCLUDE_DIRS}")
+#message("${TinyDNN_INCLUDE_DIRS}")
 target_link_libraries(vae_lib ${TORCH_LIBRARIES})
 #target_link_libraries(vae_lib ${TinyDNN_LIBRARY_DIRS})
 #target_link_libraries(vae_lib ${MACOS_LD_FLAGS}
@@ -145,7 +145,8 @@ if (CUDA_FOUND)
 
     file(GLOB REL_CUDA_SRC "${CMAKE_SOURCE_DIR}/src/gpu_utils/*.cu" "${CMAKE_SOURCE_DIR}/src/gpu_utils/cuda_kernels/*.cu")
 
-    cuda_add_library(relion_gpu_util ${REL_CUDA_SRC})
+    add_library(relion_gpu_util ${REL_CUDA_SRC})
+    target_link_libraries(relion_gpu_util ${CUDA_LIBRARIES})
 
     if (${CMAKE_BUILD_TYPE_LOWER} STREQUAL "profiling")
         find_library(NV_TOOLS_LIBRARIES   NAMES nvToolsExt  PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib ${CUDA_TOOLKIT_ROOT_DIR}/lib64)
