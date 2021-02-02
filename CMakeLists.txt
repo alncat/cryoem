@@ -246,7 +246,7 @@ endif(NOT FFTW_FOUND)
 #pytorch
 if(NOT Torch_FOUND)
     #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
-    find_package(Torch REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../libtorch")
+    find_package(Torch REQUIRED PATHS "/libtorch")
 endif()
 
 #tinydnn

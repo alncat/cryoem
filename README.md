@@ -4,7 +4,7 @@
 
 
 OPUS-SSRI(Sparsity and Smoothness Regularized Imaging) is a stand-alone computer 
-program for Maximum A Posteriori refinement of (multiple) 3D reconstructions in cryo-electron microscopy. It is developed in the 
+program for Maximum A Posteriori refinement of (multiple) 3D reconstructions in cryo-electron microscopy. It is developed by the 
 research group of Jianpeng Ma in Baylor College of Medicine. This implementation is based on the software [RELION](https://www.ncbi.nlm.nih.gov/pubmed/22100448).
 
 ## Installation
@@ -14,13 +14,14 @@ OPUS-SSRI can be installed by using the docker command below.
 ```
 docker pull alncat/opus-ssri:first
 ```
-Another important step is setting up gpu support for docker. 
+To make the docker image work properly, you should set up gpu support for docker. 
 You can follow the instruction at https://www.tensorflow.org/install/docker .
-We can then run the program in the docker image via
+We can then create a container from the image via
 ```
 sudo docker run --name ssri-test --gpus all  -it -v /data:/data alncat/opus-ssri:first bash
 ```
-You can later keep the source in docker image up to date by replacing the /relion-luo/src directory with the src in this repository and recompling the whole program using make in /relion-luo/build. The updated program now can be found in /relion-luo/build/bin.
+The source code is located in /relion-luo and the compiled bins are in /relion-luo/build/bin .
+You can later keep the source in docker image up to date by pulling from this repository and recompling the whole program using make in /relion-luo/build. The updated program now can be found in /relion-luo/build/bin.
 
 ## Usage
 
@@ -60,23 +61,26 @@ mpiexec -n 3 /relion-luo/build/bin/relion_refine_mpi --o /output-folder --i part
 
 ```
 ## Build instruction (Under development!!!)
-To build this program from scratch on a ubuntu 16.04 machine, we can first create a build directory. You need to have a cmake with version above 3.15.2, a cuda 10.1, cudnn and latest version of libtorch. You also need to have an fftw library with threads. In case of missing reference to cublas, we can install cublas and link it to the directory of cuda 10.1 manually by executing 
+The develop docker image is alncat/ssri-torch:latest .
+To build this program from scratch inside docker image, we can first create a build directory in source directory. 
+This docker image contains cmake with version above 3.19.4, cuda 10.1, cudnn and latest version of libtorch, fftw library with threads. 
+In case of missing reference to cublas, we can install cublas and link it to the directory of cuda 10.1 manually by executing 
 ```
 sudo ln -s -T /usr/lib/x86_64-linux-gnu/libcublas.so /usr/local/cuda-10.1/lib64/libcublas.so
 ```
+We may need to set the environement variables FFTW_LIB and FFTW_INCLUDE before compiling. (If cmake reported it cannot find fftw, execute this command)
+```
+export FFTW_LIB=/usr/lib64 && export FFTW_INCLUDE=/usr/include
+```
 We then change to the build directory. Inside the build directory, execute
 ```
-/usr/local/bin/cmake -DCMAKE_INSTALL_PREFIX=/fullpathof/build/bin/ -DCMAKE_BUILD_TYPE=relwithdebinfo -DCMAKE_C_COMPILER=gcc-5 -DCMAKE_CXX_COMPILER=g++-5 -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-10.1 -DCUDNN_INCLUDE_DIR=/usr/include -DCUDNN_LIBRARY=/usr/lib/x86_64-linux-gnu -DCMAKE_PREFIX_PATH=/fullpathof/libtorch/share/cmake/Torch ..
+/cmake-3.19.4/bin/cmake -DCMAKE_INSTALL_PREFIX=~/ssri/build/bin/ -DCMAKE_PREFIX_PATH=/libtorch/share/cmake/Torch -DCMAKE_CUDA_COMPILER_FORCED=ON -DGUI=OFF -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-10.1/ ../
 ```
 Remeber to substitute the fullpathof with your complete path.
 After this, execute
 ```
 make
 ```
-then
-```
-make install
-```
-You can have program inside build/bin .
+You can then find compiled bins inside build/bin .
 
 The reconstructed results of OPUS-SSRI for some systems can be accessed at https://www.dropbox.com/sh/8ln07s9esmnnvhe/AADRk4UddUyfTFTa0KFK1NvYa?dl=0 .

@@ -188,6 +188,7 @@ if (CUDA_FOUND)
     #target_include_directories(relion_lib PUBLIC ${TORCH_INCLUDE_DIRS})
     #target_include_directories(relion_gpu_util PUBLIC ${TORCH_INCLUDE_DIRS})
     #target_include_directories(relion_gpu_util PUBLIC ${TinyDNN_INCLUDE_DIRS})
+    target_include_directories(relion_gpu_util PUBLIC ${CUDA_INCLUDE_DIRS})
     target_link_libraries(relion_lib relion_gpu_util ${CUDA_CUFFT_LIBRARIES})# ${TORCH_LIBRARIES})
 
 endif(CUDA_FOUND)
