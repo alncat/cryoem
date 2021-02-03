@@ -1,6 +1,5 @@
 // Copyright 2020-present pytorch-cpp Authors
 #pragma once
-#undef CUDA
 #include <torch/torch.h>
 #include <utility>
 

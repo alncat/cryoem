@@ -17,7 +17,7 @@
 #include "src/mask.h"
 #include "src/macros.h"
 #include "src/helix.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_mem_utils.h"
 #include "src/gpu_utils/cuda_projector.h"
 #include "src/gpu_utils/cuda_settings.h"
