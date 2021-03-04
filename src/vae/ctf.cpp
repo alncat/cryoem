@@ -21,7 +21,7 @@ void optimize_ctf(std::vector<float>& image_data, std::vector<float>& ref_data, 
         torch::Tensor y_idx = torch::arange(-image_size/2, image_size)/float(image_size);
         auto grid = torch::meshgrid({y_idx, x_idx});
         //grid[0] corresponding to y, where grid[1] corresponding to x
-        gird[0] /= ys;
+        grid[0] /= ys;
         grid[1] /= xs;
         grid[0] = torch::roll(grid[0], {image_size/2}, {0});
         torch::Tensor angle = torch::atan2(grid[0], grid[1]);
@@ -44,7 +44,7 @@ void optimize_ctf(std::vector<float>& image_data, std::vector<float>& ref_data, 
         ref_image_ctf = torch::roll(ref_image_ctf, {image_size/2, image_size/2}, {0, 1});
         image = image.reshape({1,image_size*image_size});
         ref_image_ctf = ref_image_ctf.reshape({1,image_size*image_size});
-        auto restraint = defocus_deviation*defocus_deviation/(defocus_res*defocus_res.*image_size*image_size);
+        auto restraint = defocus_deviation*defocus_deviation/(defocus_res*defocus_res*float(image_size*image_size));
         return -torch::nn::functional::cosine_similarity(image, ref_image_ctf);
     };
     torch::optim::LBFGS lbfgs_optimizer({deltau, deltav, deltaa}, torch::optim::LBFGSOptions().line_search_fn("strong_wolfe"));
