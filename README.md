@@ -74,7 +74,7 @@ export FFTW_LIB=/usr/lib64 && export FFTW_INCLUDE=/usr/include
 ```
 We then change to the build directory. Inside the build directory, execute
 ```
-/cmake-3.19.4/bin/cmake -DCMAKE_INSTALL_PREFIX=~/ssri/build/bin/ -DCMAKE_PREFIX_PATH=/libtorch/share/cmake/Torch -DCMAKE_CUDA_COMPILER_FORCED=ON -DGUI=OFF -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-10.1/ ../
+/cmake-3.19.4/bin/cmake -DCMAKE_INSTALL_PREFIX=~/gpu/ssri/build/bin/ -DCMAKE_PREFIX_PATH=/root/gpu/libtorch/share/cmake/Torch -DCMAKE_CUDA_COMPILER_FORCED=ON -DGUI=OFF -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-10.1/ ../
 ```
 Remeber to substitute the fullpathof with your complete path.
 After this, execute
