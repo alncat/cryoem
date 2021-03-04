@@ -43,7 +43,7 @@
 #include "src/macros.h"
 #include "src/error.h"
 #include "src/ml_optimiser.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_ml_optimiser.h"
 #endif
 
@@ -63,7 +63,7 @@ void globalThreadExpectationSomeParticles(ThreadArgument &thArg)
 
 	try
 	{
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 		if (MLO->do_gpu)
 			((MlOptimiserCuda*) MLO->cudaOptimisers[thArg.thread_id])->doThreadExpectationSomeParticles(thArg.thread_id);
 		else
@@ -336,7 +336,7 @@ void MlOptimiser::parseContinue(int argc, char **argv)
 
 	do_gpu = parser.checkOption("--gpu", "Use available gpu resources for some calculations");
 	gpu_ids = parser.getOption("--gpu", "Device ids for each MPI-thread","default");
-#ifndef CUDA
+#ifndef CUDA_ENABLED
 	if(do_gpu)
 	{
 		std::cerr << "+ WARNING : Relion was compiled without CUDA of at least version 7.0 - you do NOT have support for GPUs" << std::endl;
@@ -577,7 +577,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
 
 	do_gpu = parser.checkOption("--gpu", "Use available gpu resources for some calculations");
 	gpu_ids = parser.getOption("--gpu", "Device ids for each MPI-thread","default");
-#ifndef CUDA
+#ifndef CUDA_ENABLED
 	if(do_gpu)
 	{
 		std::cerr << "+ WARNING : Relion was compiled without CUDA of at least version 7.0 - you do NOT have support for GPUs" << std::endl;
@@ -1027,7 +1027,7 @@ void MlOptimiser::initialise()
     //vae_run();
 	if (do_gpu)
 	{
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 		int devCount;
 		HANDLE_ERROR(cudaGetDeviceCount(&devCount));
 
@@ -2450,7 +2450,7 @@ void MlOptimiser::expectation()
 	std::cerr << "Expectation: done setupCheckMemory" << std::endl;
 #endif
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	/************************************************************************/
 	//GPU memory setup
 
@@ -2615,7 +2615,7 @@ void MlOptimiser::expectation()
 	if (subset_size < 0 && verb > 0)
 		progress_bar(nr_particles_todo);
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	if (do_gpu)
 	{
 		for (int i = 0; i < cudaDeviceBundles.size(); i ++)

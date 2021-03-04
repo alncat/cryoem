@@ -42,7 +42,7 @@ void AutoPickerMpi::read(int argc, char **argv)
 
 }
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 int AutoPickerMpi::deviceInitialise()
 {
 	int devCount;

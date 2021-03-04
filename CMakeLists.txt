@@ -137,7 +137,7 @@ if(CUDA_FOUND)
     endif()
 
     if(CUDA)
-    	add_definitions(-DCUDA)
+    	add_definitions(-DCUDA_ENABLED)
     endif()
 else(CUDA_FOUND)
     message(STATUS "Using non-cuda compilation....")
@@ -246,7 +246,7 @@ endif(NOT FFTW_FOUND)
 #pytorch
 if(NOT Torch_FOUND)
     #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
-    find_package(Torch REQUIRED PATHS "/libtorch")
+    find_package(Torch REQUIRED PATHS "/root/gpu/libtorch")
 endif()
 
 #tinydnn

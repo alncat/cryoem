@@ -19,7 +19,7 @@
  ***************************************************************************/
 #include "src/ctffind_runner.h"
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_mem_utils.h"
 #endif
 
@@ -200,7 +200,7 @@ void CtffindRunner::initialise()
 
 	if (do_use_gctf && fn_micrographs.size()>0)
 	{
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 		untangleDeviceIDs(gpu_ids, allThreadIDs);
 		if (allThreadIDs[0].size()==0 || (!std::isdigit(*gpu_ids.begin())) )
 		{

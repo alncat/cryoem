@@ -26,7 +26,7 @@
 #include <string>
 #include "src/backprojector.h"
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_ml_optimiser.h"
 #include "src/gpu_utils/cuda_lasso.cuh"
 #endif

@@ -19,7 +19,7 @@
  ***************************************************************************/
 #include "src/ml_optimiser_mpi.h"
 #include "src/ml_optimiser.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_ml_optimiser.h"
 #endif
 #include <stdio.h>
@@ -91,7 +91,7 @@ void MlOptimiserMpi::initialise()
 	// Print information about MPI nodes:
     if (!do_movies_in_batches)
     	printMpiNodesMachineNames(*node, nr_threads);
-#ifdef CUDA
+#ifdef CUDA_ENABLED
     /************************************************************************/
 	//Setup GPU related resources
     int devCount, deviceAffinity;
@@ -920,7 +920,7 @@ void MlOptimiserMpi::expectation()
 #define JOB_LEN_FN_RECIMG  (first_last_nr_images(5))
 #define JOB_NPAR  (JOB_LAST - JOB_FIRST + 1)
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	/************************************************************************/
 	//GPU memory setup
 
@@ -1401,7 +1401,7 @@ void MlOptimiserMpi::expectation()
 
 //		TODO: define MPI_COMM_SLAVES!!!!	MPI_Barrier(node->MPI_COMM_SLAVES);
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 			if (do_gpu)
 			{
 				for (int i = 0; i < cudaDeviceBundles.size(); i ++)

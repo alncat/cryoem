@@ -3258,7 +3258,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                         }
                     }
                     //only update ctf when correlation improved
-                    if(correlation > old_correlation) {
+                    if(true) {//correlation > old_correlation) {
                         for (long int j = 0; j < image_size; j++){
                             wdiff2s_AA[j] *= Fctf.data[j]*Fctf.data[j];
                             wdiff2s_XA[j] *= Fctf.data[j];
