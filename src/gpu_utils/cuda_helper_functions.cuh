@@ -103,7 +103,9 @@ void runWavgKernel(
 		XFLOAT part_scale,
 		bool refs_are_ctf_corrected,
 		bool data_is_3D,
-		cudaStream_t stream);
+		cudaStream_t stream,
+		bool refine_ctf,
+		bool save_proj);
 
 void runBackProjectKernel(
 		CudaBackprojector &BP,

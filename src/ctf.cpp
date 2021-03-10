@@ -127,6 +127,18 @@ void CTF::write(MetaDataTable &MD)
     MD.setValue(EMDL_CTF_Q0, Q0);
 }
 
+/* get Ks and Q0 */
+void CTF::getKsQ0(std::vector<float>& Ks, float& Q0_)
+{
+	Ks.resize(5, 0.);
+	Ks[0] = K1;
+	Ks[1] = K2;
+	Ks[2] = K3;
+	Ks[3] = K4;
+	Ks[4] = K5;
+	Q0_   = Q0;
+}
+
 /* Write ------------------------------------------------------------------- */
 void CTF::write(std::ostream &out)
 {

@@ -125,6 +125,9 @@ public:
     /** Empty constructor. */
     CTF() { clear(); }
 
+	/** get Ks and Q0 */
+	void getKsQ0(std::vector<float>& Ks, float& Q0_);
+
     /** Read CTF parameters from MetaDataTables MD1 and MD2
      * If a parameter is not found in MD1 it is tried to be read from MD2
      * Only if it is also not present in the second then a default value is used

@@ -416,7 +416,7 @@ void getFourierTransformsAndCtfs(long int my_ori_particle,
 
 		CTOC(cudaMLO->timer,"selfTranslate");
 
-		CTIC(cudaMLO->timer,"calcFimg");
+		CnTIC(cudaMLO->timer,"calcFimg");
 		size_t current_size_x = baseMLO->mymodel.current_size / 2 + 1;
 		size_t current_size_y = baseMLO->mymodel.current_size;
 		size_t current_size_z = (cudaMLO->dataIs3D) ? baseMLO->mymodel.current_size : 1;
@@ -2724,6 +2724,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 
             //std::cout << "sum_weight: " << op.sum_weight[ipart] << std::endl;
             float max_major_weight = 0.;
+						//zero index corresponding to image for ctf refinement, which is the sum of all orientations and
+						//translations
+						major_weights.back().push_back(1.);
             while(major_cnt < 2 && !pq.empty() && pq.top().first > 0.) {
                 if(max_major_weight < pq.top().first) max_major_weight = pq.top().first;
                 else if(max_major_weight > pq.top().first*1e2) break;
@@ -2736,6 +2739,8 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             }
             ////std::cout << "major_cnt: " << major_cnt << std::endl;
             major_cnts.push_back(major_cnt);
+						//reserve an additional image space for storing the total sum of projs and original images
+						major_cnt += 1;
             major_projections.push_back(std::unique_ptr<CudaGlobalPtr<XFLOAT>>(new CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator)));
             major_images.push_back(std::unique_ptr<CudaGlobalPtr<XFLOAT>>(new CudaGlobalPtr<XFLOAT>(major_cnt*image_size*2, cudaMLO->devBundle->allocator)));
 
@@ -2801,7 +2806,9 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 					part_scale,
 					false,//baseMLO->refs_are_ctf_corrected, //toggle ctf correction
 					cudaMLO->dataIs3D,
-					cudaMLO->classStreams[exp_iclass]);
+					cudaMLO->classStreams[exp_iclass],
+					refine_ctf,
+					save_proj);
             //get the difference between projection and real image
             //w(x - pv)
             //pass it to vae and get a reconstrcuted difference
@@ -2810,95 +2817,25 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
             //divide the major_projection by total weight to get normalized projection
             //create a tensor to hold the projections
             DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
-            major_projections[(exp_iclass - sp.iclass_min)]->cp_to_host();
+						int i_cls = exp_iclass - sp.iclass_min;
+						
+            major_projections[i_cls]->cp_to_host();
             //major_projections[exp_iclass - sp.iclass_min]->streamSync();
-            major_images[(exp_iclass - sp.iclass_min)]->cp_to_host();
-            major_images[exp_iclass - sp.iclass_min]->streamSync();
-            int total_real_projections_size = cudaMLO->transformer1.reals.getSize()*major_weights[exp_iclass - sp.iclass_min].size();
+            major_images[i_cls]->cp_to_host();
+            major_images[i_cls]->streamSync();
+            int total_real_projections_size = cudaMLO->transformer1.reals.getSize()*major_weights[i_cls].size();
+						
             std::vector<float> real_projections(total_real_projections_size, 0);
             std::vector<float> real_images(total_real_projections_size, 0);
             int torch_dim = baseMLO->mymodel.ori_size/2 + 1;
-            for(int t_i = 0; t_i < major_weights[exp_iclass - sp.iclass_min].size(); t_i++) {
-                std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
-                std::vector<float> i_image(cudaMLO->transformer1.reals.getSize(), 0.);
-                unsigned xfsize = cudaMLO->transformer1.xFSize;
-                unsigned yfsize = cudaMLO->transformer1.yFSize;
-                cudaMLO->transformer1.fouriers.host_init(0);
-                cudaMLO->transformer2.fouriers.host_init(0);
-                //std::cout << xfsize << " " << yfsize << std::endl;
-                //std::cout << major_projections[exp_iclass - sp.iclass_min].getSize() << " " << image_size << " " << major_cnts[exp_iclass - sp.iclass_min] << std::endl;
-                int i_cls = exp_iclass - sp.iclass_min;
-                //window fourier transform
-                for(int t_j = 0; t_j < image_size; t_j++) {
-                    //index for ith projection
-                    int index = t_i*image_size*2 + 2*t_j;
-                    if(index + 1 >= major_projections[i_cls]->getSize()) 
-                        std::cout << "wrong!" << std::endl;
-                    float weight = major_weights[i_cls][t_i];
-                    //major_projections[(exp_iclass - sp.iclass_min)][index] = major_projections[exp_iclass-sp.iclass_min][index]/major_weights[exp_iclass - sp.iclass_min][t_i];
-                    float real = (*major_projections[i_cls])[index]/weight;
-                    float imag = (*major_projections[i_cls])[index+1]/weight;
-                    float real_im = (*major_images[i_cls])[index]/weight;
-                    float imag_im = (*major_images[i_cls])[index+1]/weight;
-                    //major_projections[(exp_iclass - sp.iclass_min)][index+1] = major_projections[exp_iclass-sp.iclass_min][index + 1]/major_weights[exp_iclass - sp.iclass_min][t_i];
-                    //major_projections[i_cls][index] = real/weight;
-                    //major_projections[exp_iclass - sp.iclass_min][index+1] = imag/weight;
-                    //get the logical index
-                    int y = t_j / projKernel.imgX;
-                    int x = t_j % projKernel.imgX;
-                    if(y >= projKernel.imgX) y -= projKernel.imgY;
-                    if(y < 0) y += yfsize;
-                    cudaMLO->transformer1.fouriers[y*xfsize + x].x = real;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j];
-                    cudaMLO->transformer1.fouriers[y*xfsize + x].y = imag;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1];
-                    cudaMLO->transformer2.fouriers[y*xfsize + x].x = real_im;
-                    cudaMLO->transformer2.fouriers[y*xfsize + x].y = imag_im;
-                }
-
-            //ifft on major_projection
-                cudaMLO->transformer1.fouriers.cp_to_device();
-                cudaMLO->transformer1.fouriers.streamSync();
-                cudaMLO->transformer1.backward();
-		        //cudaMLO->transformer1.reals.streamSync();
-                cudaMLO->transformer2.fouriers.cp_to_device();
-                cudaMLO->transformer2.fouriers.streamSync();
-                cudaMLO->transformer2.backward();
-		        cudaMLO->transformer2.reals.streamSync();
-                ////center reals
-                runCenterFFT(
-                        cudaMLO->transformer1.reals,
-                        (int)cudaMLO->transformer1.xSize,
-                        (int)cudaMLO->transformer1.ySize,
-                        (int)cudaMLO->transformer1.zSize,
-                        false
-                        );
-                cudaMLO->transformer1.reals.cp_to_host();
-                //cudaMLO->transformer1.reals.streamSync();
-                runCenterFFT(
-                        cudaMLO->transformer2.reals,
-                        (int)cudaMLO->transformer2.xSize,
-                        (int)cudaMLO->transformer2.ySize,
-                        (int)cudaMLO->transformer2.zSize,
-                        false
-                        );
-                cudaMLO->transformer2.reals.cp_to_host();
-                cudaMLO->transformer2.reals.streamSync();
-                ////copy to projection
-                for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
-                    i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
-                    i_image[t_j] = cudaMLO->transformer2.reals[t_j];
-                    real_projections[t_j + t_i*cudaMLO->transformer1.reals.getSize()] = cudaMLO->transformer1.reals[t_j];
-                    real_images[t_j + t_i*cudaMLO->transformer2.reals.getSize()] = cudaMLO->transformer2.reals[t_j];
-                }
-                if(part_id == 1688){
-                    //save to image
-                    Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
-                    std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
-                    debug_img.write("prj"+std::to_string(t_i)+".mrc");
-                    std::copy(i_image.begin(), i_image.end(), debug_img.data.data);
-                    debug_img.write("ref"+std::to_string(t_i)+".mrc");
-                }
-                //emplace_back
-                //real_projections.emplace_back(i_projection);
+						
+						//remember image at zero is reserved for ctf refinement, but so when major_weights[icls] size
+						//is 1, we will only refine ctf
+            for(int t_i = 0; t_i < major_weights[i_cls].size(); t_i++) {
+							getRealRefProjPair(cudaMLO, major_projections[i_cls], major_images[i_cls],
+																 real_projections, real_images, image_size,  major_weights[i_cls][t_i],
+																 projKernel, t_i, part_id == 1688);
+              
             }
             //pass to auto encoder
             if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/2.8)) > 1.){
@@ -2909,354 +2846,77 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
 
             //update ctf per particle,
             CTF new_ctf;
+						bool refine_ctf_with_torch = DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5.3)) > 1.;
+						//refine ctf only when the angular sampling is less than 7.5 degree
+						refine_ctf_with_torch &&= baseMLO->sampling.healpix_order > 2;
             //std::cout << baseMLO->do_ctf_correction << " " << cudaMLO->dataIs3D << " " << sp.iclass_max - sp.iclass_min << std::endl;
+						
             if(baseMLO->do_ctf_correction && !cudaMLO->dataIs3D && sp.iclass_max - sp.iclass_min == 0){
                 //note that AA, XA, sum are fftw centered
                 DEBUG_HANDLE_ERROR(cudaStreamSynchronize(cudaMLO->classStreams[exp_iclass]));
+								//start refining defocus parameters using libtorch lbfgs
+								if(refine_ctf_with_torch){
+									//read defocus parameters									
+									RFLOAT defocus_u = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U);
+                  RFLOAT defocus_v = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V);
+                  RFLOAT defocus_a = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE);
+									//convert angle to radian
+									defocus_a = DEG2RAD(defocus_a);
+									//using new_ctf to calculate ks and q0
+									new_ctf.setValues(defocus_u,
+																		defocus_v,
+																		RAD2DEG(defocus_a),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
+																		1.,
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
+									std::vector<float> Ks;
+									float Q0;
+									new_ctf.getKsQ0(Ks, Q0);
+									
+									//use 100 angstrom as default restraint, real_projections is data, real_images is reference to be
+									//matched against
+									optimize_ctf(real_projections, real_images, defocus_u, defocus_v, defocus_a, 100,
+															 Ks, Q0, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size, true);
+
+									//update ctf parameters in new_ctf
+									new_ctf.setValues(defocus_u,
+																		defocus_v,
+																		RAD2DEG(defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
+																		1.,
+																		DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
+								}
+								
+								//copy these arrays to cpu
                 wdiff2s_AA.cp_to_host();
-		        wdiff2s_XA.cp_to_host();
+								wdiff2s_XA.cp_to_host();
                 wdiff2s_sum.cp_to_host();
                 wdiff2s_AA.streamSync();
-                if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5.3)) > 1.){//6))>1.){//4.4) > 1.){
+								//another ctf parameter refinement method using wdiff2s_xa.
+								if(!refine_ctf_with_torch && false)
+									{
+										refineCTFNewton(new_ctf, baseMLO, op, ipart, image_size, wdiff2s_AA, wdiff2s_XA);
+									}
+
+								//if(DIRECT_A1D_ELEM(baseMLO->mymodel.data_vs_prior_class[exp_iclass], int(baseMLO->mymodel.ori_size/5.3)) > 1.){//6))>1.){//4.4) > 1.){
+								if(refine_ctf_with_torch)
+									{
                     MultidimArray<RFLOAT> Fctf;
-                    MultidimArray<RFLOAT> AA_spectrum, AA_counter, ctf_spectrum;
-                    //Fctfs is fftw centered and has size of image_size
-                    Fctf.resize(op.Fctfs[ipart]);
-                    AA_spectrum.initZeros(baseMLO->mymodel.ori_size/2 + 1);
-                    AA_counter.initZeros(baseMLO->mymodel.ori_size/2 + 1);
-                    ctf_spectrum.initZeros(baseMLO->mymodel.ori_size/2 + 1);
-                    for(long int j = 0; j < image_size; j++){
-                        //int x = j % op.local_Minvsigma2s[0].xdim;
-                        //int y = j / op.local_Minvsigma2s[0].xdim;
-                        //if(y > projKernel.maxR){
-                        //    if( y >= op.local_Minvsigma2s[0].ydim - projKernel.maxR)
-                        //        y -= op.local_Minvsigma2s[0].ydim;
-                        //    else
-                        //        x = projKernel.maxR;
-                        //}
-                        int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-                        if(ires > -1) {
-                            //int ires = sqrt(x*x + y*y);
-                            DIRECT_A1D_ELEM(AA_spectrum, ires) += wdiff2s_AA[j];
-                            DIRECT_A1D_ELEM(AA_counter, ires) += 1;
-                        }
-                    }
-                    for(long int j = 0; j < baseMLO->mymodel.ori_size/2 + 1; j++){
-                        if(DIRECT_A1D_ELEM(AA_counter, j) > 0. && DIRECT_A1D_ELEM(AA_spectrum, j) > 0.) {
-                            DIRECT_A1D_ELEM(AA_spectrum, j) /= DIRECT_A1D_ELEM(AA_counter, j);
-                            DIRECT_A1D_ELEM(AA_spectrum, j) = sqrt(DIRECT_A1D_ELEM(AA_spectrum, j));
-                        } else {
-                            DIRECT_A1D_ELEM(AA_counter, j) = 0.;
-                        }
-                    }
-                    //std::cout << MULTIDIM_SIZE(Fctf) << " " << image_size << std::endl;
-                    RFLOAT old_defocus_u = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U);
-                    RFLOAT old_defocus_v = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V);
-                    RFLOAT old_defocus_a = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE);
-                    //we will use radian for angle during optimization, and convert it to degree when setting initial values for ctf object
-                    old_defocus_a = DEG2RAD(old_defocus_a);
-                    RFLOAT defocus_u = old_defocus_u;
-                    RFLOAT defocus_v = old_defocus_v;
-                    RFLOAT defocus_a = old_defocus_a;
-                    MultidimArray<RFLOAT> grad_u, grad_v, grad_t, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv;
-                    grad_u.resize(Fctf);
-                    grad_v.resize(Fctf);
-                    grad_t.resize(Fctf);
-                    hessian_u.resize(Fctf);
-                    hessian_v.resize(Fctf);
-                    hessian_uv.resize(Fctf);
-                    hessian_t.resize(Fctf);
-                    hessian_tu.resize(Fctf);
-                    hessian_tv.resize(Fctf);
-
-                    //calculate current correlation before optimization
-                    RFLOAT old_correlation = 0.;
-                    for (long int j = 0; j < image_size; j++) {
-                            int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-                            if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
-                                RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
-                                scale = 1./scale;
-                                old_correlation += wdiff2s_XA[j]*Fctf.data[j]*scale;
-                            }
-                    }
-
-                    for(int idescent = 0; idescent < ROUND(6.*baseMLO->mymodel.current_size/float(baseMLO->mymodel.ori_size)); idescent++){
-                        new_ctf.setValues(defocus_u,
-                                defocus_v,
-                                RAD2DEG(defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
-                                1.,
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
-                        
-                        //all gradients and hessian are fftw centered
-                        //new_ctf.getFftwImage(Fctf, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size, baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
-                        new_ctf.getFftwImageandGrads(Fctf, grad_u, grad_v, grad_t, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv, 
-                                baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
-                                baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
-                        //simply loop through the array to get gradients
-                        RFLOAT gu = 0., gv = 0., gt = 0., hu = 0., hv = 0., huv = 0., ht = 0., htu = 0., htv = 0.;
-                        //do gradient descent only when fsc(ori_size/5) > 0.5
-                        //for (long int j = 0; j < image_size; j++){
-                        //    int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-                        //    if(ires > -1) {
-                        //        DIRECT_A1D_ELEM(ctf_spectrum, ires) += Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j];
-                        //        DIRECT_A1D_ELEM(AA_counter, ires) += 1;
-                        //    }
-                        //}
-                        //for(long int j = 0; j < baseMLO->mymodel.ori_size/2 + 1; j++){
-                        //    if(DIRECT_A1D_ELEM(AA_counter, j) && DIRECT_A1D_ELEM(ctf_spectrum, j)) {
-                        //        DIRECT_A1D_ELEM(ctf_spectrum, j) /= DIRECT_A1D_ELEM(AA_counter, j);
-                        //        DIRECT_A1D_ELEM(ctf_spectrum, j) = sqrt(DIRECT_A1D_ELEM(ctf_spectrum, j));
-                        //    } else {
-                        //        DIRECT_A1D_ELEM(AA_counter, j) = 0.;
-                        //    }
-                        //}
-                        for (long int j = 0; j < image_size; j++) {
-                            int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-                            if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
-                                //RFLOAT ctf_scale = DIRECT_A1D_ELEM(ctf_spectrum, ires);
-                                //RFLOAT ctf_scale2 = ctf_scale*ctf_scale;
-                                RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
-                                scale = 1./scale;
-                                //RFLOAT aa_norm = 1./DIRECT_A1D_ELEM(AA_spectrum, ires);
-                                //aa_norm *= aa_norm;
-                                //RFLOAT scale = ctf_scale*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter,ires));
-                                //scale = 1./scale;
-                                //if(isnan(scale) || isnan(Fctf.data[j])) {
-                                //    std::cout << idescent << " " << DIRECT_A1D_ELEM(AA_spectrum, ires) << " " << sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires)) << " " << Fctf.data[j] << " " << scale << std::endl;
-                                //}
-                                //DIRECT_A1D_ELEM(ctf_spectrum, ires) += Fctf.data[j]*Fctf.data[j];
-                                //RFLOAT ctf_scale3 = ctf_scale2*ctf_scale;
-                                //RFLOAT grad_ctf = (1./ctf_scale - Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j]/(ctf_scale3));
-                                //RFLOAT hessian_ctf = (-3.*Fctf.data[j]*wdiff2s_AA[j]/(ctf_scale3) + 3.*Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j]*wdiff2s_AA[j]*Fctf.data[j]/(ctf_scale3*ctf_scale2));
-                                gu += -wdiff2s_XA[j]*scale*grad_u.data[j];
-                                gv += -wdiff2s_XA[j]*scale*grad_v.data[j];
-                                gt += -wdiff2s_XA[j]*scale*grad_t.data[j];
-                                hu += -wdiff2s_XA[j]*(scale*hessian_u.data[j]);
-                                hv += -wdiff2s_XA[j]*(scale*hessian_v.data[j]);
-                                huv += -wdiff2s_XA[j]*(scale*hessian_uv.data[j]);
-                                ht += -wdiff2s_XA[j]*(scale*hessian_t.data[j]);
-                                htu += -wdiff2s_XA[j]*(scale*hessian_tu.data[j]);
-                                htv += -wdiff2s_XA[j]*(scale*hessian_tv.data[j]);
-
-                                //gu += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_u.data[j];
-                                //gv += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_v.data[j];
-                                //hu += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_u.data[j] + grad_u.data[j]*grad_u.data[j]) - wdiff2s_XA[j]*scale*hessian_u.data[j];
-                                //hv += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_v.data[j] + grad_v.data[j]*grad_v.data[j]) - wdiff2s_XA[j]*scale*hessian_v.data[j];
-                                //huv += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_uv.data[j] + grad_u.data[j]*grad_v.data[j]) - wdiff2s_XA[j]*scale*hessian_uv.data[j];
-                            }
-                        }
-                        //now do a newton raphson descent
-                        if(true){
-                            RFLOAT deta = hu*hv - huv*huv;
-                            RFLOAT t= (hu + hv);
-                            RFLOAT l1 = 0.5*t + sqrt(t*t*0.25 - deta);
-                            RFLOAT l2 = 0.5*t - sqrt(t*t*0.25 - deta);
-                            RFLOAT lmax = std::max(fabs(l1), fabs(l2));
-                            RFLOAT lmin = std::min(fabs(l1), fabs(l2));
-                            //if(lmax > 5.*lmin){
-                            gu += (1.0*lmax+0.0*lmax)*(defocus_u - old_defocus_u) + 0.5*lmax*(defocus_u - defocus_v);
-                            gv += (1.0*lmax+0.0*lmax)*(defocus_v - old_defocus_v) + 0.5*lmax*(defocus_v - defocus_u);
-                            hu += (1.0*lmax+0.0*lmax) + 0.5*lmax;
-                            hv += (1.0*lmax+0.0*lmax) + 0.5*lmax;
-                            //} //else {
-                            //    gu += (lmin)*(defocus_u - old_defocus_u);
-                            //    gv += (lmin)*(defocus_v - old_defocus_v);
-                            //    hu += (lmin);
-                            //    hv += (lmin);
-                            //}
-                            deta = hu*hv - huv*huv;
-                            RFLOAT du = (hv*gu - huv*gv)/deta;
-                            RFLOAT dv = (-huv*gu + hu*gv)/deta;
-                            l1 += (lmax+0.0*lmax) + 0.50*lmax;
-                            l2 += (lmax+0.0*lmax) + 0.50*lmax;
-                            lmax = std::max(fabs(l1), fabs(l2));
-                            lmin = std::min(fabs(l1), fabs(l2));
-
-                            //if(lmax > 5.*lmin) {
-                            //    //std::cout << abs(l1) << " " << abs(l2) << std::endl;
-                            //    if(lmax != l1 && lmax != l2) lmax = -lmax;
-                            //    deta = (hu+lmax)*(hv+lmax) - huv*huv;
-                            //    du = ((hv+lmax)*gu - huv*gv)/deta;
-                            //    dv = (-huv*gu + (hu+lmax)*gv)/deta;
-                            //}
-
-                            du = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*du;//gu/l1;
-                            dv = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dv;//gv/l1;
-
-                            //backup before updates
-                            //old_defocus_u = defocus_u;
-                            //old_defocus_v = defocus_v;
-
-                            defocus_u -= du;
-                            defocus_v -= dv;
-                        }
-                        //update angle
-                        if(false){
-                            RFLOAT lmax = fabs(ht);
-                            gt += (lmax+lmax)*(defocus_a - old_defocus_a);
-                            ht += (lmax+lmax);
-
-                            RFLOAT dt = gt/ht;
-                            if(isnan(dt)) 
-                                std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
-
-                            if(fabs(ht) < 1.e-5) ht = copysign(1e-5, ht);
-                            dt = gt/ht;
-                            if(isnan(dt)) 
-                                std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
-                            dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt/(fabs(defocus_u) + fabs(defocus_v) + fabs(defocus_a));//gv/l1;
-                            if(fabs(dt) > 0.002*fabs(defocus_a)) dt = copysign(0.002*defocus_a, dt);
-
-                            defocus_a -= dt;
-                        }
-
-                        if(false){
-                            //calculate eigen values for 3x3 matrix
-#define M_SQR(x) ((x)*(x))
-#define M_SQRT3    1.73205080756887729352744634151   // sqrt(3)
-
-                            double m, c1, c0;
-                            double A[3][3], w[3];
-                            A[0][0] = hu,  A[0][1] = huv, A[0][2] = htu;
-                            A[1][0] = huv, A[1][1] = hv,  A[1][2] = htv;
-                            A[2][0] = htu, A[2][1] = htv, A[2][2] = ht;
-
-                            // Determine coefficients of characteristic poynomial. We write
-                            //       | a   d   f  |
-                            //  A =  | d*  b   e  |
-                            //       | f*  e*  c  |
-                            double de = A[0][1] * A[1][2];                                    // d * e
-                            double dd = M_SQR(A[0][1]);                                         // d^2
-                            double ee = M_SQR(A[1][2]);                                         // e^2
-                            double ff = M_SQR(A[0][2]);                                         // f^2
-                            m  = A[0][0] + A[1][1] + A[2][2];
-                            c1 = (A[0][0]*A[1][1] + A[0][0]*A[2][2] + A[1][1]*A[2][2])        // a*b + a*c + b*c - d^2 - e^2 - f^2
-                                - (dd + ee + ff);
-                            c0 = A[2][2]*dd + A[0][0]*ee + A[1][1]*ff - A[0][0]*A[1][1]*A[2][2]
-                                - 2.0 * A[0][2]*de;                                     // c*d^2 + a*e^2 + b*f^2 - a*b*c - 2*f*d*e)
-
-                            double p, sqrt_p, q, c, s, phi;
-                            p = M_SQR(m) - 3.0*c1;
-                            q = m*(p - (3.0/2.0)*c1) - (27.0/2.0)*c0;
-                            sqrt_p = sqrt(fabs(p));
-
-                            phi = 27.0 * ( 0.25*M_SQR(c1)*(p - c1) + c0*(q + 27.0/4.0*c0));
-                            phi = (1.0/3.0) * atan2(sqrt(fabs(phi)), q);
-
-                            c = sqrt_p*cos(phi);
-                            s = (1.0/M_SQRT3)*sqrt_p*sin(phi);
-
-                            w[1]  = (1.0/3.0)*(m - c);
-                            w[2]  = w[1] + s;
-                            w[0]  = w[1] + c;
-                            w[1] -= s;
-                            //now do a newton raphson descent
-                            double l1 = w[0], l2 = w[1], l3 = w[2];
-                            RFLOAT lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
-                            RFLOAT lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
-                            //regularization
-                            gu += (1.2*lmax)*(defocus_u - old_defocus_u);
-                            gv += (1.2*lmax)*(defocus_v - old_defocus_v);
-                            gt += (1.2*lmax)*(defocus_a - old_defocus_a);
-                            //compute regularized inverse hessian
-                            //l1 += (1.2*lmax);
-                            //l2 += (1.2*lmax);
-                            //l3 += (1.2*lmax);
-                            //regularze hessian by adding a diagonal matrix
-                            double a = A[0][0] + 1.2*lmax,    b = A[0][1],               //c = A[0][2],
-                                   d = A[1][0],               e = A[1][1] + 1.2*lmax,    f = A[1][2],
-                                   g = A[2][0],               h = A[2][1],               i = A[2][2] + 1.2*lmax;
-                            c = A[0][2];
-                            //lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
-                            //lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
-
-                            //deal with ill-conditioned hessian, now the min eignvalue is at least lmin+lmax
-                            //if(lmax > 5.*lmin) {
-                            //    if(lmax != l1 && lmax != l2 && lmax != l3) lmax = -lmax;
-                            //    a += lmax;
-                            //    e += lmax;
-                            //    i += lmax;
-                            //    l1 += lmax;
-                            //    l2 += lmax;
-                            //    l3 += lmax;
-                            //}
-
-                            double ca = e*i - f*h,    cd = -(b*i - c*h), cg = (b*f - c*e),
-                                   cb = -(d*i - f*g), ce = (a*i - c*g),  ch = -(a*f - c*d),
-                                   cc = (d*h - e*g),  cf = -(a*h - b*g), ci = (a*e - b*d);
-                            double deta = a*ca + b*cb + c*cc;
-                            //if(fabs(l1*l2*l3/deta - 1.) > 1e-5) 
-                            //    std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
-                            //check inverse
-                            if(fabs((d*cd + e*ce + f*cf)/deta - 1.) > 1e-5 || fabs((g*cg + h*ch + i*ci)/deta - 1.) > 1e-5)
-                                std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
-                            RFLOAT du = (ca*gu + cd*gv + cg*gt)/deta;
-                            RFLOAT dv = (cb*gu + ce*gv + ch*gt)/deta;
-                            RFLOAT dt = (cc*gu + cf*gv + ci*gt)/deta;
-                            //if(ipart == 0){
-                            //    std::cout << " u: " << defocus_u << " v: " << defocus_v << " a: " << defocus_a;
-                            //    std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a << std::endl;
-                            //}
-
-                            du = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*du;//gu/l1;
-                            dv = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dv;//gv/l1;
-                            dt = 0.5*(du/defocus_u + dv/defocus_v)*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dt;
-                            if(isnan(old_correlation)) {
-                                std::cout << "corr: " << old_correlation << " gu " << gu << " gv " << gv;
-                                std::cout << " hu, hv " << hu << " " << hv << " huv: " << huv;
-                                std::cout << " l1/l2 " << l1/l2;
-                                std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a;//<< " image_size:" << image_size - MULTIDIM_SIZE(op.Fimgs[ipart]);
-                                std::cout << std::endl;
-                                //std::cout << " max_r: " << cudaMLO->devBundle->cudaBackprojectors[exp_iclass].maxR - op.local_Minvsigma2s[0].xdim+1;
-                                //std::cout << " pmax_r: " << projKernel.maxR - op.local_Minvsigma2s[0].xdim + 1;
-                                //std::cout << " current_size: " << sp.current_image_size << " " << projKernel.maxR;
-                                //std::cout << " Fimg_size: " << MULTIDIM_SIZE(Fimg) << " " << image_size << std::endl;
-                            }
-
-                            //RFLOAT threshold = 0.01;
-                            //if(du > threshold*defocus_u) du = threshold*defocus_u;
-                            //if(du < -threshold*defocus_u) du = -threshold*defocus_u;
-                            //if(dv > threshold*defocus_v) dv = threshold*defocus_v;
-                            //if(dv < -threshold*defocus_v) dv = -threshold*defocus_v;
-                            //gradient descent
-                            defocus_u -= du;
-                            defocus_v -= dv;
-                            defocus_a -= dt;
-                            //if(defocus_u < defocus_v) {
-                            //    std::swap(defocus_u, defocus_v);
-                            //}
-
-                        } //u, v, angle, updates block
-                    }//idescent
-                    //update ctf and copy it to device
-                    new_ctf.setValues(defocus_u,
-                                defocus_v,
-                                RAD2DEG(defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
-                                1.,
-                                DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
+										Fctf.resize(op.Fctfs[ipart]);
+                    //calculate Fctf for computing diff2s*
                     new_ctf.getFftwImage(Fctf, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
                                 baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
-                    RFLOAT correlation = 0.;
-                    for (long int j = 0; j < image_size; j++) {
-				        ctfs[j] = (XFLOAT) Fctf.data[j] * part_scale;
-                        int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
-                        if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
-                            RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
-                            scale = 1./scale;
-                            //RFLOAT ctf_scale = DIRECT_A1D_ELEM(ctf_spectrum, ires);
-                            //RFLOAT scale = ctf_scale*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter,ires));
-                            //scale = 1./scale;
-                            correlation += wdiff2s_XA[j]*Fctf.data[j]*scale;
-                        }
-                    }
+										for (long int j = 0; j < image_size; j++)
+											{
+												ctfs[j] = (XFLOAT) Fctf.data[j]*part_scale;
+											}
+                    
                     //only update ctf when correlation improved
                     if(true) {//correlation > old_correlation) {
                         for (long int j = 0; j < image_size; j++){
@@ -3269,12 +2929,15 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             wdiff2s_XA[j] = fabs(wdiff2s_XA[j]);//tmp;
                         }
                         //std::cout << "diff_corr :" << (correlation - old_correlation)/correlation << std::endl;
+
+												//copy ctfs to gpu for backprojection
                         ctfs.cp_to_device();
                         ctfs.streamSync();
-
-                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U) = defocus_u;
-                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V) = defocus_v;
-                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE) = RAD2DEG(defocus_a);
+												
+												//persist ctf parameters
+                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U) = new_ctf.DeltafU;
+                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V) = new_ctf.DeltafV;
+                        DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE) = new_ctf.azimuthal_angle;
                     } else {
                         for (long int j = 0; j < image_size; j++){
                             wdiff2s_AA[j] *= op.Fctfs[ipart].data[j]*op.Fctfs[ipart].data[j];
@@ -3286,7 +2949,7 @@ void storeWeightedSums(OptimisationParamters &op, SamplingParameters &sp,
                             wdiff2s_XA[j] = fabs(wdiff2s_XA[j]);//tmp;
                         }
                     }
-                }//toggle ctf refinement when refinement stabilized
+                }//toggle on ctf refinement when refinement stabilized
                 //directly multiply AA and XA with ctf;
                 else {
                     for (long int j = 0; j < image_size; j++){
@@ -4069,3 +3732,436 @@ void MlOptimiserCuda::doThreadExpectationSomeParticles(int thread_id)
 #endif
 }
 
+void getRealRefProjPair(MlOptimiserCuda* cudaMLO, std::unique_ptr<CudaGlobalPtr<XFLOAT>>& major_projection,
+												std::unique_ptr<CudaGlobalPtr<XFLOAT>>& major_image,
+												std::vector<float>& real_projections, std::vector<float>& real_images, int image_size, float weight,
+												Cudaprojectorkernel& projKernel, int t_i, bool write_out_data)
+{
+	std::vector<float> i_projection(cudaMLO->transformer1.reals.getSize(), 0.);
+	std::vector<float> i_image(cudaMLO->transformer1.reals.getSize(), 0.);
+	unsigned xfsize = cudaMLO->transformer1.xFSize;
+	unsigned yfsize = cudaMLO->transformer1.yFSize;
+	cudaMLO->transformer1.fouriers.host_init(0);
+	cudaMLO->transformer2.fouriers.host_init(0);
+	//std::cout << xfsize << " " << yfsize << std::endl;
+	//std::cout << major_projections[exp_iclass - sp.iclass_min].getSize() << " " << image_size << " " << major_cnts[exp_iclass - sp.iclass_min] << std::endl;
+	
+	//window fourier transform
+	for(int t_j = 0; t_j < image_size; t_j++) {
+		//index for ith projection
+		int index = 2*t_i*image_size + 2*t_j;
+		if(index + 1 >= major_projection->getSize()) 
+			std::cout << "wrong!" << std::endl;
+		//major_projections[(exp_iclass - sp.iclass_min)][index] = major_projections[exp_iclass-sp.iclass_min][index]/major_weights[exp_iclass - sp.iclass_min][t_i];
+		float real = (*major_projection)[index]/weight;
+		float imag = (*major_projection)[index+1]/weight;
+		float real_im = (*major_image])[index]/weight;
+		float imag_im = (*major_image)[index+1]/weight;
+		//major_projections[(exp_iclass - sp.iclass_min)][index+1] = major_projections[exp_iclass-sp.iclass_min][index + 1]/major_weights[exp_iclass - sp.iclass_min][t_i];
+		//major_projections[i_cls][index] = real/weight;
+		//major_projections[exp_iclass - sp.iclass_min][index+1] = imag/weight;
+		//get the logical index
+		int y = t_j / projKernel.imgX;
+		int x = t_j % projKernel.imgX;
+		if(y >= projKernel.imgX) y -= projKernel.imgY;
+		if(y < 0) y += yfsize;
+		cudaMLO->transformer1.fouriers[y*xfsize + x].x = real;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j];
+		cudaMLO->transformer1.fouriers[y*xfsize + x].y = imag;//major_projections[(exp_iclass - sp.iclass_min)][t_i*image_size*2 + 2*t_j+1];
+		cudaMLO->transformer2.fouriers[y*xfsize + x].x = real_im;
+		cudaMLO->transformer2.fouriers[y*xfsize + x].y = imag_im;
+	}
+
+	//ifft on major_projection
+	cudaMLO->transformer1.fouriers.cp_to_device();
+	cudaMLO->transformer1.fouriers.streamSync();
+	cudaMLO->transformer1.backward();
+	//cudaMLO->transformer1.reals.streamSync();
+	cudaMLO->transformer2.fouriers.cp_to_device();
+	cudaMLO->transformer2.fouriers.streamSync();
+	cudaMLO->transformer2.backward();
+	cudaMLO->transformer2.reals.streamSync();
+	////center reals
+	runCenterFFT(
+							 cudaMLO->transformer1.reals,
+							 (int)cudaMLO->transformer1.xSize,
+							 (int)cudaMLO->transformer1.ySize,
+							 (int)cudaMLO->transformer1.zSize,
+							 false
+							 );
+	cudaMLO->transformer1.reals.cp_to_host();
+	//cudaMLO->transformer1.reals.streamSync();
+	runCenterFFT(
+							 cudaMLO->transformer2.reals,
+							 (int)cudaMLO->transformer2.xSize,
+							 (int)cudaMLO->transformer2.ySize,
+							 (int)cudaMLO->transformer2.zSize,
+							 false
+							 );
+	cudaMLO->transformer2.reals.cp_to_host();
+	cudaMLO->transformer2.reals.streamSync();
+	////copy to projection
+	for(int t_j = 0; t_j  < cudaMLO->transformer1.reals.getSize(); t_j++){
+		i_projection[t_j] = cudaMLO->transformer1.reals[t_j];
+		i_image[t_j] = cudaMLO->transformer2.reals[t_j];
+		real_projections[t_j + t_i*cudaMLO->transformer1.reals.getSize()] = cudaMLO->transformer1.reals[t_j];
+		real_images[t_j + t_i*cudaMLO->transformer2.reals.getSize()] = cudaMLO->transformer2.reals[t_j];
+	}
+	if(write_out_data){
+		//save to image
+		Image<float> debug_img(cudaMLO->transformer1.xSize, cudaMLO->transformer1.ySize);
+		std::copy(i_projection.begin(), i_projection.end(), debug_img.data.data);
+		debug_img.write("prj"+std::to_string(t_i)+".mrc");
+		std::copy(i_image.begin(), i_image.end(), debug_img.data.data);
+		debug_img.write("ref"+std::to_string(t_i)+".mrc");
+	}
+	//emplace_back
+	//real_projections.emplace_back(i_projection);
+}
+
+//refine ctf parameters using netwon raphson method
+void refineCTFNewton(CTF& new_ctf, MlOptimiserCuda* baseMLO, OptimisationParamters &op, int ipart, int image_size,
+										 CudaGlobalPtr<XFLOAT>& wdiff2s_AA, CudaGlobalPtr<XFLOAT>& wdiff2s_XA)
+{
+	MultidimArray<RFLOAT> Fctf;
+	MultidimArray<RFLOAT> AA_spectrum, AA_counter, ctf_spectrum;
+	//Fctfs is fftw centered and has size of image_size
+	Fctf.resize(op.Fctfs[ipart]);
+	AA_spectrum.initZeros(baseMLO->mymodel.ori_size/2 + 1);
+	AA_counter.initZeros(baseMLO->mymodel.ori_size/2 + 1);
+	ctf_spectrum.initZeros(baseMLO->mymodel.ori_size/2 + 1);
+	for(long int j = 0; j < image_size; j++){
+		//int x = j % op.local_Minvsigma2s[0].xdim;
+		//int y = j / op.local_Minvsigma2s[0].xdim;
+		//if(y > projKernel.maxR){
+		//    if( y >= op.local_Minvsigma2s[0].ydim - projKernel.maxR)
+		//        y -= op.local_Minvsigma2s[0].ydim;
+		//    else
+		//        x = projKernel.maxR;
+		//}
+		int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
+		if(ires > -1) {
+			//int ires = sqrt(x*x + y*y);
+			DIRECT_A1D_ELEM(AA_spectrum, ires) += wdiff2s_AA[j];
+			DIRECT_A1D_ELEM(AA_counter, ires) += 1;
+		}
+	}
+	for(long int j = 0; j < baseMLO->mymodel.ori_size/2 + 1; j++){
+		if(DIRECT_A1D_ELEM(AA_counter, j) > 0. && DIRECT_A1D_ELEM(AA_spectrum, j) > 0.) {
+			DIRECT_A1D_ELEM(AA_spectrum, j) /= DIRECT_A1D_ELEM(AA_counter, j);
+			DIRECT_A1D_ELEM(AA_spectrum, j) = sqrt(DIRECT_A1D_ELEM(AA_spectrum, j));
+		} else {
+			DIRECT_A1D_ELEM(AA_counter, j) = 0.;
+		}
+	}
+	//std::cout << MULTIDIM_SIZE(Fctf) << " " << image_size << std::endl;
+	RFLOAT old_defocus_u = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_U);
+	RFLOAT old_defocus_v = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_V);
+	RFLOAT old_defocus_a = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE);
+	//we will use radian for angle during optimization, and convert it to degree when setting initial values for ctf object
+	old_defocus_a = DEG2RAD(old_defocus_a);
+	RFLOAT defocus_u = old_defocus_u;
+	RFLOAT defocus_v = old_defocus_v;
+	RFLOAT defocus_a = old_defocus_a;
+	MultidimArray<RFLOAT> grad_u, grad_v, grad_t, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv;
+	grad_u.resize(Fctf);
+	grad_v.resize(Fctf);
+	grad_t.resize(Fctf);
+	hessian_u.resize(Fctf);
+	hessian_v.resize(Fctf);
+	hessian_uv.resize(Fctf);
+	hessian_t.resize(Fctf);
+	hessian_tu.resize(Fctf);
+	hessian_tv.resize(Fctf);
+
+	//calculate current correlation before optimization
+	RFLOAT old_correlation = 0.;
+	for (long int j = 0; j < image_size; j++) {
+		int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
+		if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
+			RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
+			scale = 1./scale;
+			old_correlation += wdiff2s_XA[j]*Fctf.data[j]*scale;
+		}
+	}
+
+	for(int idescent = 0; idescent < ROUND(6.*baseMLO->mymodel.current_size/float(baseMLO->mymodel.ori_size)); idescent++){
+		new_ctf.setValues(defocus_u,
+											defocus_v,
+											RAD2DEG(defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
+											DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
+											DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
+											DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
+											DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
+											1.,
+											DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
+                        
+		//all gradients and hessian are fftw centered
+		//new_ctf.getFftwImage(Fctf, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size, baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
+		new_ctf.getFftwImageandGrads(Fctf, grad_u, grad_v, grad_t, hessian_u, hessian_v, hessian_uv, hessian_t, hessian_tu, hessian_tv, 
+																 baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
+																 baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
+		//simply loop through the array to get gradients
+		RFLOAT gu = 0., gv = 0., gt = 0., hu = 0., hv = 0., huv = 0., ht = 0., htu = 0., htv = 0.;
+		//do gradient descent only when fsc(ori_size/5) > 0.5
+		//for (long int j = 0; j < image_size; j++){
+		//    int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
+		//    if(ires > -1) {
+		//        DIRECT_A1D_ELEM(ctf_spectrum, ires) += Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j];
+		//        DIRECT_A1D_ELEM(AA_counter, ires) += 1;
+		//    }
+		//}
+		//for(long int j = 0; j < baseMLO->mymodel.ori_size/2 + 1; j++){
+		//    if(DIRECT_A1D_ELEM(AA_counter, j) && DIRECT_A1D_ELEM(ctf_spectrum, j)) {
+		//        DIRECT_A1D_ELEM(ctf_spectrum, j) /= DIRECT_A1D_ELEM(AA_counter, j);
+		//        DIRECT_A1D_ELEM(ctf_spectrum, j) = sqrt(DIRECT_A1D_ELEM(ctf_spectrum, j));
+		//    } else {
+		//        DIRECT_A1D_ELEM(AA_counter, j) = 0.;
+		//    }
+		//}
+		//summing gradients and hessian
+		for (long int j = 0; j < image_size; j++) {
+			int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
+			if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
+				//RFLOAT ctf_scale = DIRECT_A1D_ELEM(ctf_spectrum, ires);
+				//RFLOAT ctf_scale2 = ctf_scale*ctf_scale;
+				RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
+				scale = 1./scale;
+				//RFLOAT aa_norm = 1./DIRECT_A1D_ELEM(AA_spectrum, ires);
+				//aa_norm *= aa_norm;
+				//RFLOAT scale = ctf_scale*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter,ires));
+				//scale = 1./scale;
+				//if(isnan(scale) || isnan(Fctf.data[j])) {
+				//    std::cout << idescent << " " << DIRECT_A1D_ELEM(AA_spectrum, ires) << " " << sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires)) << " " << Fctf.data[j] << " " << scale << std::endl;
+				//}
+				//DIRECT_A1D_ELEM(ctf_spectrum, ires) += Fctf.data[j]*Fctf.data[j];
+				//RFLOAT ctf_scale3 = ctf_scale2*ctf_scale;
+				//RFLOAT grad_ctf = (1./ctf_scale - Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j]/(ctf_scale3));
+				//RFLOAT hessian_ctf = (-3.*Fctf.data[j]*wdiff2s_AA[j]/(ctf_scale3) + 3.*Fctf.data[j]*Fctf.data[j]*wdiff2s_AA[j]*wdiff2s_AA[j]*Fctf.data[j]/(ctf_scale3*ctf_scale2));
+				gu += -wdiff2s_XA[j]*scale*grad_u.data[j];
+				gv += -wdiff2s_XA[j]*scale*grad_v.data[j];
+				gt += -wdiff2s_XA[j]*scale*grad_t.data[j];
+				hu += -wdiff2s_XA[j]*(scale*hessian_u.data[j]);
+				hv += -wdiff2s_XA[j]*(scale*hessian_v.data[j]);
+				huv += -wdiff2s_XA[j]*(scale*hessian_uv.data[j]);
+				ht += -wdiff2s_XA[j]*(scale*hessian_t.data[j]);
+				htu += -wdiff2s_XA[j]*(scale*hessian_tu.data[j]);
+				htv += -wdiff2s_XA[j]*(scale*hessian_tv.data[j]);
+
+				//gu += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_u.data[j];
+				//gv += (Fctf.data[j]*wdiff2s_AA[j]*aa_norm - wdiff2s_XA[j]*scale)*grad_v.data[j];
+				//hu += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_u.data[j] + grad_u.data[j]*grad_u.data[j]) - wdiff2s_XA[j]*scale*hessian_u.data[j];
+				//hv += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_v.data[j] + grad_v.data[j]*grad_v.data[j]) - wdiff2s_XA[j]*scale*hessian_v.data[j];
+				//huv += wdiff2s_AA[j]*aa_norm*(Fctf.data[j]*hessian_uv.data[j] + grad_u.data[j]*grad_v.data[j]) - wdiff2s_XA[j]*scale*hessian_uv.data[j];
+			}
+		}
+		//now do a newton raphson descent
+		if(true){
+			RFLOAT deta = hu*hv - huv*huv;
+			RFLOAT t= (hu + hv);
+			RFLOAT l1 = 0.5*t + sqrt(t*t*0.25 - deta);
+			RFLOAT l2 = 0.5*t - sqrt(t*t*0.25 - deta);
+			RFLOAT lmax = std::max(fabs(l1), fabs(l2));
+			RFLOAT lmin = std::min(fabs(l1), fabs(l2));
+			//if(lmax > 5.*lmin){
+			gu += (1.0*lmax+0.0*lmax)*(defocus_u - old_defocus_u) + 0.5*lmax*(defocus_u - defocus_v);
+			gv += (1.0*lmax+0.0*lmax)*(defocus_v - old_defocus_v) + 0.5*lmax*(defocus_v - defocus_u);
+			hu += (1.0*lmax+0.0*lmax) + 0.5*lmax;
+			hv += (1.0*lmax+0.0*lmax) + 0.5*lmax;
+			//} //else {
+			//    gu += (lmin)*(defocus_u - old_defocus_u);
+			//    gv += (lmin)*(defocus_v - old_defocus_v);
+			//    hu += (lmin);
+			//    hv += (lmin);
+			//}
+			deta = hu*hv - huv*huv;
+			RFLOAT du = (hv*gu - huv*gv)/deta;
+			RFLOAT dv = (-huv*gu + hu*gv)/deta;
+			l1 += (lmax+0.0*lmax) + 0.50*lmax;
+			l2 += (lmax+0.0*lmax) + 0.50*lmax;
+			lmax = std::max(fabs(l1), fabs(l2));
+			lmin = std::min(fabs(l1), fabs(l2));
+
+			//if(lmax > 5.*lmin) {
+			//    //std::cout << abs(l1) << " " << abs(l2) << std::endl;
+			//    if(lmax != l1 && lmax != l2) lmax = -lmax;
+			//    deta = (hu+lmax)*(hv+lmax) - huv*huv;
+			//    du = ((hv+lmax)*gu - huv*gv)/deta;
+			//    dv = (-huv*gu + (hu+lmax)*gv)/deta;
+			//}
+
+			du = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*du;//gu/l1;
+			dv = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dv;//gv/l1;
+
+			//backup before updates
+			//old_defocus_u = defocus_u;
+			//old_defocus_v = defocus_v;
+
+			defocus_u -= du;
+			defocus_v -= dv;
+		}
+		//update angle
+		if(false){
+			RFLOAT lmax = fabs(ht);
+			gt += (lmax+lmax)*(defocus_a - old_defocus_a);
+			ht += (lmax+lmax);
+
+			RFLOAT dt = gt/ht;
+			if(isnan(dt)) 
+				std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
+
+			if(fabs(ht) < 1.e-5) ht = copysign(1e-5, ht);
+			dt = gt/ht;
+			if(isnan(dt)) 
+				std::cout << idescent << " defocus, a, u, v: " << defocus_a << " " << defocus_u << " " << defocus_v << " dt/defocus_a: " << dt/defocus_a << " gt: " << gt << " ht: " << ht << std::endl;
+			dt = 0.1*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 5.))*dt/(fabs(defocus_u) + fabs(defocus_v) + fabs(defocus_a));//gv/l1;
+			if(fabs(dt) > 0.002*fabs(defocus_a)) dt = copysign(0.002*defocus_a, dt);
+
+			defocus_a -= dt;
+		}
+
+		if(false){
+			//calculate eigen values for 3x3 matrix
+#define M_SQR(x) ((x)*(x))
+#define M_SQRT3    1.73205080756887729352744634151   // sqrt(3)
+
+			double m, c1, c0;
+			double A[3][3], w[3];
+			A[0][0] = hu,  A[0][1] = huv, A[0][2] = htu;
+			A[1][0] = huv, A[1][1] = hv,  A[1][2] = htv;
+			A[2][0] = htu, A[2][1] = htv, A[2][2] = ht;
+
+			// Determine coefficients of characteristic poynomial. We write
+			//       | a   d   f  |
+			//  A =  | d*  b   e  |
+			//       | f*  e*  c  |
+			double de = A[0][1] * A[1][2];                                    // d * e
+			double dd = M_SQR(A[0][1]);                                         // d^2
+			double ee = M_SQR(A[1][2]);                                         // e^2
+			double ff = M_SQR(A[0][2]);                                         // f^2
+			m  = A[0][0] + A[1][1] + A[2][2];
+			c1 = (A[0][0]*A[1][1] + A[0][0]*A[2][2] + A[1][1]*A[2][2])        // a*b + a*c + b*c - d^2 - e^2 - f^2
+				- (dd + ee + ff);
+			c0 = A[2][2]*dd + A[0][0]*ee + A[1][1]*ff - A[0][0]*A[1][1]*A[2][2]
+				- 2.0 * A[0][2]*de;                                     // c*d^2 + a*e^2 + b*f^2 - a*b*c - 2*f*d*e)
+
+			double p, sqrt_p, q, c, s, phi;
+			p = M_SQR(m) - 3.0*c1;
+			q = m*(p - (3.0/2.0)*c1) - (27.0/2.0)*c0;
+			sqrt_p = sqrt(fabs(p));
+
+			phi = 27.0 * ( 0.25*M_SQR(c1)*(p - c1) + c0*(q + 27.0/4.0*c0));
+			phi = (1.0/3.0) * atan2(sqrt(fabs(phi)), q);
+
+			c = sqrt_p*cos(phi);
+			s = (1.0/M_SQRT3)*sqrt_p*sin(phi);
+
+			w[1]  = (1.0/3.0)*(m - c);
+			w[2]  = w[1] + s;
+			w[0]  = w[1] + c;
+			w[1] -= s;
+			//now do a newton raphson descent
+			double l1 = w[0], l2 = w[1], l3 = w[2];
+			RFLOAT lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
+			RFLOAT lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
+			//regularization
+			gu += (1.2*lmax)*(defocus_u - old_defocus_u);
+			gv += (1.2*lmax)*(defocus_v - old_defocus_v);
+			gt += (1.2*lmax)*(defocus_a - old_defocus_a);
+			//compute regularized inverse hessian
+			//l1 += (1.2*lmax);
+			//l2 += (1.2*lmax);
+			//l3 += (1.2*lmax);
+			//regularze hessian by adding a diagonal matrix
+			double a = A[0][0] + 1.2*lmax,    b = A[0][1],               //c = A[0][2],
+				     d = A[1][0],               e = A[1][1] + 1.2*lmax,    f = A[1][2],
+				     g = A[2][0],               h = A[2][1],               i = A[2][2] + 1.2*lmax;
+			c = A[0][2];
+			//lmax = std::max(std::max(fabs(l1), fabs(l2)), fabs(l3));
+			//lmin = std::min(std::min(fabs(l1), fabs(l2)), fabs(l3));
+
+			//deal with ill-conditioned hessian, now the min eignvalue is at least lmin+lmax
+			//if(lmax > 5.*lmin) {
+			//    if(lmax != l1 && lmax != l2 && lmax != l3) lmax = -lmax;
+			//    a += lmax;
+			//    e += lmax;
+			//    i += lmax;
+			//    l1 += lmax;
+			//    l2 += lmax;
+			//    l3 += lmax;
+			//}
+
+			double ca = e*i - f*h,    cd = -(b*i - c*h), cg = (b*f - c*e),
+				cb = -(d*i - f*g), ce = (a*i - c*g),  ch = -(a*f - c*d),
+				cc = (d*h - e*g),  cf = -(a*h - b*g), ci = (a*e - b*d);
+			double deta = a*ca + b*cb + c*cc;
+			//if(fabs(l1*l2*l3/deta - 1.) > 1e-5) 
+			//    std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
+			//check inverse
+			if(fabs((d*cd + e*ce + f*cf)/deta - 1.) > 1e-5 || fabs((g*cg + h*ch + i*ci)/deta - 1.) > 1e-5)
+				std::cout << "l1: " << l1 << " l2: " << l2 << " l3: " << l3 << " deta: " << deta << std::endl;
+			RFLOAT du = (ca*gu + cd*gv + cg*gt)/deta;
+			RFLOAT dv = (cb*gu + ce*gv + ch*gt)/deta;
+			RFLOAT dt = (cc*gu + cf*gv + ci*gt)/deta;
+			//if(ipart == 0){
+			//    std::cout << " u: " << defocus_u << " v: " << defocus_v << " a: " << defocus_a;
+			//    std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a << std::endl;
+			//}
+
+			du = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*du;//gu/l1;
+			dv = 0.14*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dv;//gv/l1;
+			dt = 0.5*(du/defocus_u + dv/defocus_v)*(RFLOAT(baseMLO->iter) / (baseMLO->iter + 10.))*dt;
+			if(isnan(old_correlation)) {
+				std::cout << "corr: " << old_correlation << " gu " << gu << " gv " << gv;
+				std::cout << " hu, hv " << hu << " " << hv << " huv: " << huv;
+				std::cout << " l1/l2 " << l1/l2;
+				std::cout << " du/u: " << du / defocus_u << " dv/v: " << dv / defocus_v << " da/a: " << dt / defocus_a;//<< " image_size:" << image_size - MULTIDIM_SIZE(op.Fimgs[ipart]);
+				std::cout << std::endl;
+				//std::cout << " max_r: " << cudaMLO->devBundle->cudaBackprojectors[exp_iclass].maxR - op.local_Minvsigma2s[0].xdim+1;
+				//std::cout << " pmax_r: " << projKernel.maxR - op.local_Minvsigma2s[0].xdim + 1;
+				//std::cout << " current_size: " << sp.current_image_size << " " << projKernel.maxR;
+				//std::cout << " Fimg_size: " << MULTIDIM_SIZE(Fimg) << " " << image_size << std::endl;
+			}
+
+			//RFLOAT threshold = 0.01;
+			//if(du > threshold*defocus_u) du = threshold*defocus_u;
+			//if(du < -threshold*defocus_u) du = -threshold*defocus_u;
+			//if(dv > threshold*defocus_v) dv = threshold*defocus_v;
+			//if(dv < -threshold*defocus_v) dv = -threshold*defocus_v;
+			//gradient descent
+			defocus_u -= du;
+			defocus_v -= dv;
+			defocus_a -= dt;
+			//if(defocus_u < defocus_v) {
+			//    std::swap(defocus_u, defocus_v);
+			//}
+
+		} //u, v, angle, updates block
+	}//idescent
+	
+	//save new ctf parameters in new_ctf
+	new_ctf.setValues(defocus_u,
+										defocus_v,
+										RAD2DEG(defocus_a),//DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_DEFOCUS_ANGLE),
+										DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_VOLTAGE),
+										DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_CS),
+										DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_Q0),
+										DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_BFAC),
+										1.,
+										DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_CTF_PHASE_SHIFT));
+	//update Fctf
+	new_ctf.getFftwImage(Fctf, baseMLO->mymodel.ori_size, baseMLO->mymodel.ori_size, baseMLO->mymodel.pixel_size,
+                                baseMLO->ctf_phase_flipped, baseMLO->only_flip_phases, baseMLO->intact_ctf_first_peak, true);
+	RFLOAT correlation = 0.;
+	for (long int j = 0; j < image_size; j++) {
+											
+		int ires = DIRECT_MULTIDIM_ELEM(baseMLO->Mresol_fine, j);
+		if(ires > -1 & DIRECT_A1D_ELEM(AA_counter, ires) > 0 && DIRECT_A1D_ELEM(op.power_imgs[ipart], ires) > 0){
+			RFLOAT scale = (DIRECT_A1D_ELEM(AA_spectrum, ires))*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter, ires));
+			scale = 1./scale;
+			//RFLOAT ctf_scale = DIRECT_A1D_ELEM(ctf_spectrum, ires);
+			//RFLOAT scale = ctf_scale*sqrt(DIRECT_A1D_ELEM(op.power_imgs[ipart], ires)/DIRECT_A1D_ELEM(AA_counter,ires));
+			//scale = 1./scale;
+			correlation += wdiff2s_XA[j]*Fctf.data[j]*scale;
+		}
+	}
+}

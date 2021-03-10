@@ -536,4 +536,11 @@ public:
 
 };
 
+void getRealRefProjPair(MlOptimiserCuda* cudaMLO, std::unique_ptr<CudaGlobalPtr<XFLOAT>>& major_projection,
+												std::unique_ptr<CudaGlobalPtr<XFLOAT>>& major_iamge, std::vector<float>& real_projections,
+												std::vector<float>& real_images, int image_size, float weight,
+												Cudaprojectorkernel& projKernel, int t_i, bool write_out_data);
+
+void refineCTFNewton(CTF& new_ctf, MlOptimiserCuda* baseMLO, OptimisationParamters &op, int ipart, int image_size,
+										 CudaGlobalPtr<XFLOAT>& wdiff2s_AA, CudaGlobalPtr<XFLOAT>& wdiff2s_XA);
 #endif
