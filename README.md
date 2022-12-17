@@ -1,7 +1,8 @@
 
 Our latest version can do CTF refinement with 3D refinement simultaneously!!! checkout [CTF refinement](#ctf)
 
-#Compilation
+# Compilation
+
 You can compile this program with fftw in external directory!
 First, modify the ```CMakeLists.txt``` file, replace the cuda architecture compatible with your GPU! and set the ```MPI_LIBRARIES, MPI_INCLUDE_PATH``` to the mpi related paths on your system!
 We recommend using cmake >= 3.14, gnu8 and cuda 10.2 !
