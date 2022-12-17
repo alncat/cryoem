@@ -4,8 +4,9 @@ Our latest version can do CTF refinement with 3D refinement simultaneously!!! ch
 # Compilation
 
 You can compile this program with fftw in external directory!
-First, modify the ```CMakeLists.txt``` file, replace the cuda architecture compatible with your GPU! and set the ```MPI_LIBRARIES, MPI_INCLUDE_PATH``` to the mpi related paths on your system!
-We recommend using cmake >= 3.14, gnu8 and cuda 10.2 !
+First, modify the ```CMakeLists.txt``` file, replace the cuda architecture related variables to make it compatible with your GPU! and set the ```MPI_LIBRARIES, MPI_INCLUDE_PATH``` to the mpi related paths on your system! Note that the default setting of cuda architecture is ```sm_61```. To execute this program on Nvidia GPUs with other CUDA architectures, you should change all ```sm_61``` and ```compute_61``` variables in ```/root/gpu/ssri_remote/CMakeLists.txt``` to the corresponding architecture of your GPUs.
+
+We recommend using cmake >= 3.14, gnu8 and cuda 10.1 !
 ```
 mkdir build & cd build
 ```
