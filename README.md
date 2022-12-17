@@ -1,11 +1,23 @@
 
-Sorry folks, the source code of this repositary might not be up to date! But the docker hub contains the latest code! Our latest version can do CTF refinement with 3D refinement simultaneously!!! checkout [CTF refinement](#ctf)
+Our latest version can do CTF refinement with 3D refinement simultaneously!!! checkout [CTF refinement](#ctf)
+
+#Compilation
+You can compile this program with fftw in external directory!
+First, modify the ```CMakeLists.txt``` file, replace the cuda architecture compatible with your GPU! and set the ```MPI_LIBRARIES, MPI_INCLUDE_PATH``` to the mpi related paths on your system!
+We recommend using cmake >= 3.14, gnu8 and cuda 10.2 !
+```
+mkdir build & cd build
+```
+```
+FFTW_LIB=/work/jpma/luo/ssri/ssri_remote/external/fftw/lib FFTW_INCLUDE=/work/jpma/luo/ssri/ssri_remote/external/fftw/include/ CC=`which mpicc` CXX=`which mpic++` MPI_HOME=/opt/ohpc/pub/apps/openmpi/4.0.2_cuda10.1/ cmake -DCMAKE_INSTALL_PREFIX=/work/jpma/luo/ssri/ssri_remote/build/bin/ -DCMAKE_BUILD_TYPE=relwithdebinfo -DGUI=OFF ..
+```
+Remember to replace the environment variables with your settings!
 
 # OPUS-SSRI
 
 
-OPUS-SSRI(Sparsity and Smoothness Regularized Imaging) is a stand-alone computer 
-program for Maximum A Posteriori refinement of (multiple) 3D reconstructions in cryo-electron microscopy. It is developed in the 
+OPUS-SSRI(Sparsity and Smoothness Regularized Imaging) is a stand-alone computer
+program for Maximum A Posteriori refinement of (multiple) 3D reconstructions in cryo-electron microscopy. It is developed in the
 research group of Jianpeng Ma in Baylor College of Medicine. This implementation is based on the software [RELION](https://www.ncbi.nlm.nih.gov/pubmed/22100448).
 
 ## Installation
@@ -15,7 +27,7 @@ OPUS-SSRI can be obtained as a docker image by executing command below.
 ```
 docker pull alncat/opus-ssri:first
 ```
-Another important step is setting up gpu support for docker. 
+Another important step is setting up gpu support for docker.
 You can follow the instruction at https://www.tensorflow.org/install/docker .
 We can then create a docker container from the docker image via
 ```
@@ -52,12 +64,12 @@ Option | Function
 The command for running OPUS-SSRI is shown below,
 
 ```
-mpiexec --allow-run-as-root -n 3 /relion-luo/build/bin/relion_refine_mpi --o /output-folder --i particle-stack --ini_high 40 \ 
+mpiexec --allow-run-as-root -n 3 /relion-luo/build/bin/relion_refine_mpi --o /output-folder --i particle-stack --ini_high 40 \
 --dont_combine_weights_via_disc --pool 4 --ctf --ctf_corrected_ref --iter 25 --particle_diameter 256 \
---flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 \ 
+--flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 \
 --norm --scale --j 8 --gpu 0,1,2,3 --tv_alpha 1.0 --tv_beta 2.0 --tv_eps 0.01 --tv_epsp 0.01 \
---tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine \ 
---split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4 
+--tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine \
+--split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4
 
 ```
 You should replace ```output-folder, particle-stack and initial-map``` with your own path and files, respectively. You should also set the ```particle_diameter and sym``` according to the parameters of your system. For very large datasets that cannot fit in the memory, you should remove the ```preread_images``` option. ```tv_eps``` and ```tv_epsp``` are two adjustable parameters. You can set them around the level of density as ```the threshold for creating mask```. You can also experiment with different ```tv_alpha```, ```tv_beta``` and ```tv_weight```.
@@ -77,7 +89,7 @@ sudo docker run --name ssri-ctf --gpus all  -it -v /data:/data alncat/ssri-torch
 ```
 ```--name``` is the name of container, ```-v``` argument is used to bind directory in host to the directory in container, the first option before colon refers to the directory in host, the second option refers to the directory in the container.
 
-The docker container can be accessed later via 
+The docker container can be accessed later via
 
 ```
 sudo docker start ssri-ctf && sudo docker exec -it ssri-ctf bash
@@ -90,7 +102,7 @@ Note that the program is compiled against Nvidia GPU with compute capacity ```sm
 scl enable devtoolset-7 bash
 ```
 
-then executing 
+then executing
 ```
 cd build && make
 ```
@@ -98,7 +110,7 @@ The options for controlling the CTF refinement are listed below,
 
 Option | Function
 ------------ | -------------
---ctf_order   | Default is 2, start CTF refinement when the healpix sampling order is larger than this value 
+--ctf_order   | Default is 2, start CTF refinement when the healpix sampling order is larger than this value
 --refine_ctf_angle | Add this option to your command to refine the defoucs angle
 --ctf_defocus_dev | Default is 1.0, the restraint strength of the deviation of defocus values from previous refinement
 --ctf_defocus_iso | Default is 0.5, the restraint strength of the difference between two defocus depths
@@ -106,11 +118,11 @@ Option | Function
 An exmaple of the command for running OPUS-SSRI with CTF refinement is shown below,
 
 ```
-mpiexec --allow-run-as-root -n 3 /root/gpu/ssri/remote/build/bin/relion_refine_mpi --o /output-folder --i particle-stack --ini_high 40 \ 
+mpiexec --allow-run-as-root -n 3 /root/gpu/ssri/remote/build/bin/relion_refine_mpi --o /output-folder --i particle-stack --ini_high 40 \
 --dont_combine_weights_via_disc --pool 4 --ctf --ctf_corrected_ref --iter 25 --particle_diameter 256 \
---flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 \ 
+--flatten_solvent --zero_mask --oversampling 1 --healpix_order 2 --offset_range 5 --offset_step 2 \
 --norm --scale --j 8 --gpu 0,1,2,3 --tv_alpha 1.0 --tv_beta 2.0 --tv_eps 0.01 --tv_epsp 0.01 \
---tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine \ 
+--tv_weight 0.1 --tv_lr 0.5 --tv_iters 150 --ref initial-map --free_gpu_memory 256 --auto_refine \
 --split_random_halves --low_resol_join_halves 50 --tv --adaptive_fraction 0.94 --preread_images --sym C4 --sigma2_fudge 0.5 --ctf_defocus_iso 0.5
 
 ```
