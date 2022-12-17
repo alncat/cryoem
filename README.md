@@ -13,6 +13,11 @@ FFTW_LIB=/work/jpma/luo/ssri/ssri_remote/external/fftw/lib FFTW_INCLUDE=/work/jp
 ```
 Remember to replace the environment variables with your settings!
 
+Finally,
+```
+make
+```
+
 # OPUS-SSRI
 
 
