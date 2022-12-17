@@ -4,6 +4,7 @@
 #include <queue>
 #include "src/fftw.h"
 #include <math.h>
+#include <stdlib.h>
 #include "src/gpu_utils/cuda_utils_cub.cuh"
 #include "src/gpu_utils/cuda_fft.h"
 #include "src/gpu_utils/cuda_kernels/helper.cuh"
@@ -15,8 +16,9 @@ inline int mapToCompact(int k, int i, int j, int Z, int Y, int X, int ZZ, int YY
     return k*Y*X + i*X + j;
 }
 
-void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, MultidimArray<RFLOAT> &Fconv,
-        MultidimArray<RFLOAT> &Fweight, MultidimArray<Complex> &Ftest_conv, MultidimArray<RFLOAT> &Ftest_weight, MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight, RFLOAT eps, RFLOAT epsp){
+void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha, RFLOAT tv_beta, MultidimArray<Complex> & Fdata, MultidimArray<RFLOAT> &Fconv,
+        MultidimArray<RFLOAT>& rand_mask, MultidimArray<RFLOAT> &Fweight, MultidimArray<Complex> &Ftest_conv, MultidimArray<RFLOAT> &Ftest_weight, 
+        MultidimArray<RFLOAT> &vol_out, MlDeviceBundle *devBundle, int data_dim, RFLOAT normalise, RFLOAT nrparts, bool do_nag, RFLOAT implicit_weight, RFLOAT eps, RFLOAT epsp, bool masking){
     cudaSetDevice(devBundle->device_id);
     devBundle->setStream();
     std::cout <<" Device: " << devBundle->device_id <<", fsc143: " << fsc143;
@@ -42,6 +44,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     CudaUnifedPtr<XFLOAT> yob(devBundle->stream, devBundle->device_id, img_size);
     CudaUnifedPtr<XFLOAT> grads(devBundle->stream, devBundle->device_id, img_size);
     CudaUnifedPtr<XFLOAT> sigma_norm(devBundle->stream, devBundle->device_id, 1);
+    CudaUnifedPtr<XFLOAT> drand_mask(devBundle->stream, devBundle->device_id, Fweight.getSize());
     XFLOAT mem_size = vol_out.getSize()*sizeof(XFLOAT)/1024./1024.;
     //std::cout << "Mem size " << 4*mem_size << " " << 3*img_size_h*sizeof(XFLOAT)/1024./1024. << "MB "<< std::endl;
     //CudaFFTT<false> transformer(devBundle->stream, NULL, data_dim);
@@ -59,7 +62,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     //std::cout << "weight " << weight.getSize() << ", " << Fconv.getSize()<< std::endl;
     RFLOAT fconv_norm = 0.;
     XFLOAT yob_norm = 0.;
-    int median_size = img_size_h/16;
+    int median_size = img_size_h>>4;
     int sparse_count = 0;
 
     if(do_nag) {
@@ -69,11 +72,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
             //transformer.fouriers[i].y = Fconv.data[i].imag;
             yob[i] = Fconv.data[i];
             fconv_norm += Fconv.data[i]*Fconv.data[i];
-            if(pq.size() < median_size) pq.push(yob[i]);
-            else if(pq.top() < yob[i]) {
-                pq.pop();
-                pq.push(yob[i]);
-            }
+            
             yob[i] += lambda*((XFLOAT)vol_out.data[i]);
             //std::cout << yob[i] << std::endl;
         }
@@ -93,15 +92,21 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
         //momentum.device_init(0.f);
         //vol_out is of even size
         FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY3D(vol_out){
+            size_t index = k*Y*X + i*X + j;
             if((k < ZZ || k >= Z - ZZ) &&
                (i < YY || i >= Y - YY) &&
                (j < XX || j >= X - XX)){
                 img[k*Y*X + i*X + j] = DIRECT_A3D_ELEM(vol_out, k, i, j);
-                if(img[k*Y*X + i*X + j] > 1.e-3) {
+                if(abs(img[index]) > 1.e-3) {
                     sparse_count += 1;
-                    yob_norm += abs(img[k*Y*X + i*X + j]);
                 } else {
                     //img[k*Y*X + i*X + j] = 0.;
+                }
+                yob_norm += (img[index]*img[index]);
+                if(pq.size() < median_size) pq.push(abs(img[index]));
+                else if(pq.top() < abs(img[index])) {
+                    pq.pop();
+                    pq.push(abs(img[index]));
                 }
             } else {
                 img[k*Y*X + i*X + j] = 0.;
@@ -122,12 +127,12 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     }
 
     //adjust median according to sparseness count
-    //if(sparse_count*0.5 < median_size){
-    //    int new_median_size = sparse_count*0.5;
-    //    for(int i = 0; i < median_size - new_median_size; i++){
-    //        pq.pop();
-    //    }
-    //}
+    if(sparse_count/10 < median_size){
+        int new_median_size = sparse_count/10;
+        for(int i = 0; i < median_size - new_median_size; i++){
+            pq.pop();
+        }
+    }
     std::cout << "median: " << pq.top() << " pq_fraction: " << pq.size()/XFLOAT(img_size_h) << " sparseness: " << sparse_count/XFLOAT(img_size_h) << std::endl;
     //yob.cp_to_device();
     yob.set_read_only();
@@ -150,6 +155,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     //std::cout << "Free Mem " << free_byte/1024./1024. << " Total Mem " << total_byte/1024./1024. << std::endl;
 
     weight.alloc();
+    drand_mask.alloc();
     //int xdim = Fconv.xdim/2 + 1;
     XFLOAT max_weight = 0;
     XFLOAT min_weight = normalise;
@@ -161,11 +167,16 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
         if(ip < 0) iw += Fweight.ydim;
         int index = kw*Fweight.ydim*Fweight.xdim + iw*Fweight.xdim + jw;
         weight[index] = FFTW_ELEM(Fweight, kp, ip, jp);
+        if(masking) {
+            drand_mask[index] = FFTW_ELEM(rand_mask, kp, ip, jp);
+        }
         if(max_weight < weight[index]) max_weight = weight[index];
         if(min_weight > weight[index] && weight[index] > 1e-5) min_weight = weight[index];        
     }
     weight.set_read_only();
     weight.attach_to_stream();
+    drand_mask.set_read_only();
+    drand_mask.attach_to_stream();
     //synchronize before launch kernel
     img.streamSync();
     weight.cp_to_device();
@@ -174,8 +185,10 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     //eps = yob_norm*1.;
     //eps = max(pq.top(), 0.1);
     //eps = 0.1;
+    //set eps to be the top 1/8
+    XFLOAT tv_log_eps = epsp;///eps*pq.top();
+    //eps = pq.top();
     XFLOAT tv_eps = 1./sqrt(normalise);//0.00005;
-    XFLOAT tv_log_eps = eps;
     int FBsize = (int) ceilf((float)transformer.fouriers.getSize()/(float)BLOCK_SIZE);
     int imgBsize = (int) ceilf((float)img_size_h/(float)BLOCK_SIZE);
     int imgBFsize = (int) ceilf((float)img.getSize()/(float)BLOCK_SIZE);
@@ -184,6 +197,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     
     std::cout << "device: " << devBundle->device_id << " weight: " << weight_norm << std::endl;
     Fweight.printShape();
+    Fdata.printShape();
     l_r = l_r/(max_weight + normalise);
     std::cout << "start optimizing " << "lambda: " << lambda << " avg weight : " << normalise << " max weight: " << max_weight << " min weight: " << min_weight << " condition number: " << max_weight/min_weight << std::endl;
     //tv_alpha *= std::sqrt(normalise);
@@ -204,7 +218,7 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
     for(int eps_i = 0; eps_i < 2; eps_i++){
         //eps = 0.05/(eps_i+1);
         //eps = 0.01;
-        tv_log_eps = epsp;//eps*2;
+        //tv_log_eps = epsp;//eps*2;
         tv_alpha = alpha/(eps_i+1.)*fconv_norm*eps;//sqrt(normalise);//fconv_norm*eps/3;
         for(int beta_i = 0; beta_i < 5; beta_i++){
             tv_beta = beta/(eps_i+1.)*(1. - float(beta_i)/5.)*fconv_norm*tv_log_eps;//sqrt(normalise);//fconv_norm*eps/3;
@@ -219,18 +233,34 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
                 //        (XFLOAT)1/((XFLOAT)transformer.reals.getSize()),
                 //        transformer.fouriers.getSize());
                 int xdim = X/2 + 1;
-                cuda_kernel_complex_multi<<<FBsize, BLOCK_SIZE, 0, transformer.fouriers.getStream()>>>(
-                        (XFLOAT*)~transformer.fouriers,
-                        ~weight,
-                        scale,
-                        w*scale,
-                        Z,
-                        Y,
-                        xdim,
-                        Fweight.zdim,
-                        Fweight.ydim,
-                        Fweight.xdim,
-                        transformer.fouriers.getSize());
+                if(masking){
+                    cuda_kernel_complex_multi<<<FBsize, BLOCK_SIZE, 0, transformer.fouriers.getStream()>>>(
+                            (XFLOAT*)~transformer.fouriers,
+                            ~weight,
+                            ~drand_mask,
+                            scale,
+                            w*scale,
+                            Z,
+                            Y,
+                            xdim,
+                            Fweight.zdim,
+                            Fweight.ydim,
+                            Fweight.xdim,
+                            transformer.fouriers.getSize());
+                } else {
+                    cuda_kernel_complex_multi<<<FBsize, BLOCK_SIZE, 0, transformer.fouriers.getStream()>>>(
+                            (XFLOAT*)~transformer.fouriers,
+                            ~weight,
+                            scale,
+                            w*scale,
+                            Z,
+                            Y,
+                            xdim,
+                            Fweight.zdim,
+                            Fweight.ydim,
+                            Fweight.xdim,
+                            transformer.fouriers.getSize());
+                }
                 //inverse transform and put the transformation on grads
                 transformer.backward(grads);
                 //transformer.reals.cp_on_device(grads.d_ptr);
@@ -316,27 +346,59 @@ void cuda_lasso(int fsc143, int tv_iters, RFLOAT l_r, RFLOAT mu, RFLOAT tv_alpha
             RFLOAT test_err = 0.;
             RFLOAT test_counter = 0.;
             RFLOAT avg_F = 0.;
-            FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Ftest_weight){
-                if(kp*kp + ip*ip + jp*jp <= 4*fsc143*fsc143) {
-                    int kw = kp;
-                    int iw = ip;
-                    int jw = jp;
-                    if(kp < 0) kw += Ftest_conv.zdim;
-                    if(ip < 0) iw += Ftest_conv.ydim;
-                    int index = kw*Ftest_conv.ydim*Ftest_conv.xdim + iw*Ftest_conv.xdim + jw;
-                    RFLOAT w = FFTW_ELEM(Ftest_weight, kp, ip, jp);
-                    if (w < 1.) continue;
-                    RFLOAT diff_x = transformer.fouriers[index].x*scale - Ftest_conv.data[index].real/w;
-                    RFLOAT diff_y = transformer.fouriers[index].y*scale - Ftest_conv.data[index].imag/w;
-                    test_err += (diff_x*diff_x + diff_y*diff_y)*w;
-                    avg_F += (Ftest_conv.data[index].real/w)*(Ftest_conv.data[index].real/w)*w;
-                    avg_F += (Ftest_conv.data[index].imag/w)*(Ftest_conv.data[index].imag/w)*w;
-                    test_counter += 1;
+            if(masking){
+                FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Fweight){
+                    if(kp*kp + ip*ip + jp*jp <= 4*fsc143*fsc143) {
+                        int kd = kp, kw = kp;
+                        int id = ip, iw = ip;
+                        int jd = jp, jw = jp;
+                        if(kp < 0) {
+                            kd += Fdata.zdim;
+                            kw += Fweight.zdim;
+                        }
+                        if(ip < 0) {
+                            id += Fdata.ydim;
+                            iw += Fweight.ydim;
+                        }
+                        int dindex = kd*Fdata.ydim*Fdata.xdim + id*Fdata.xdim + jd;
+                        int windex = kw*Fweight.ydim*Fweight.xdim + iw*Fweight.xdim + jw;
+                        RFLOAT w = FFTW_ELEM(Fweight, kp, ip, jp)*nrparts;
+                        if (w < 1. || drand_mask[windex]) continue;
+                        RFLOAT diff_x = transformer.fouriers[dindex].x*scale - Fdata.data[dindex].real/w;
+                        RFLOAT diff_y = transformer.fouriers[dindex].y*scale - Fdata.data[dindex].imag/w;
+                        test_err += (diff_x*diff_x + diff_y*diff_y)*w;
+                        //RFLOAT tw = FFTW_ELEM(Ftest_weight, kp, ip, jp);
+                        //test_err += (Ftest_conv.data[dindex].real/tw)*(Ftest_conv.data[dindex].real/tw);
+                        //test_err += (Ftest_conv.data[dindex].imag/tw)*(Ftest_conv.data[dindex].imag/tw);
+                        avg_F += (Fdata.data[dindex].real/w)*(Fdata.data[dindex].real/w)*w;
+                        avg_F += (Fdata.data[dindex].imag/w)*(Fdata.data[dindex].imag/w)*w;
+                        test_counter += 1;
+                    }
+                }
+            }
+            else {
+                FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM(Ftest_weight){
+                    if(kp*kp + ip*ip + jp*jp <= 4*fsc143*fsc143) {
+                        int kw = kp;
+                        int iw = ip;
+                        int jw = jp;
+                        if(kp < 0) kw += Ftest_conv.zdim;
+                        if(ip < 0) iw += Ftest_conv.ydim;
+                        int index = kw*Ftest_conv.ydim*Ftest_conv.xdim + iw*Ftest_conv.xdim + jw;
+                        RFLOAT w = FFTW_ELEM(Ftest_weight, kp, ip, jp);
+                        if (w < 1.) continue;
+                        RFLOAT diff_x = transformer.fouriers[index].x*scale - Ftest_conv.data[index].real/w;
+                        RFLOAT diff_y = transformer.fouriers[index].y*scale - Ftest_conv.data[index].imag/w;
+                        test_err += (diff_x*diff_x + diff_y*diff_y)*w;
+                        avg_F += (Ftest_conv.data[index].real/w)*(Ftest_conv.data[index].real/w)*w;
+                        avg_F += (Ftest_conv.data[index].imag/w)*(Ftest_conv.data[index].imag/w)*w;
+                        test_counter += 1;
+                    }
                 }
             }
             test_err /= test_counter;
             avg_F /= test_counter;
-            std::cout << "eps_i: " << eps_i << " " << beta_i << " beta_i: " << tv_beta << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
+            std::cout << "alpha_i: " << tv_alpha << " " << beta_i << " beta_i: " << tv_beta << " test_err: " << sqrt(test_err) << " avg_F: " << sqrt(avg_F) << std::endl;
             if(min_err > test_err) {
                 min_err = test_err;
                 best_beta = tv_beta;

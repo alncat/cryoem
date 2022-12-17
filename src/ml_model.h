@@ -76,6 +76,11 @@ public:
     // number of tv iterations
     int tv_iters;
 
+    //ctf refinement parameters
+    int ctf_refinement_order;
+    bool ctf_refine_angle;
+    RFLOAT ctf_defocus_dev, ctf_defocus_iso;
+
 	// Number of particles in each group
 	std::vector<long int> nr_particles_group;
 

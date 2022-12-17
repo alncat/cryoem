@@ -1,7 +1,7 @@
 #ifndef CUDA_DEVICE_MEM_UTILS_H_
 #define CUDA_DEVICE_MEM_UTILS_H_
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_settings.h"
 #include <cuda_runtime.h>
 #endif
@@ -818,6 +818,7 @@ class CudaUnifedPtr
     inline CudaUnifedPtr(cudaStream_t stream_, int id, size_t size_=0): size(size_), stream(stream_), gpu_id(id) {};
     inline
     T* alloc(){
+        printf("alloc unified memory, %d", size);
         HANDLE_ERROR(cudaMallocManaged(&ptr, size*sizeof(T)));
     }
     inline
@@ -1171,6 +1172,12 @@ public:
 #endif
 		cudaMemInit<T>( d_ptr, value, size, stream);
 	}
+
+    inline
+    void host_init(int value)
+    {
+        memset(h_ptr, value, sizeof(T)*size);
+    }
 
 	/**
 	 * Copy a number (size) of bytes to device stored in the host pointer

@@ -6,7 +6,8 @@ set(RELION_CMAKE_MINIMUM_REQUIRED_VERSION "2.8.12")
 #  cmake_policy(SET CMP0048 NEW)
 #endif()
 project(Relion)
-
+LINK_LIBRARIES(m)
+enable_language(CUDA)
 # Use new policy for OS X @rpath
 if(POLICY CMP0042)
     cmake_policy(SET CMP0042 NEW)
@@ -68,15 +69,16 @@ else()
 endif()
 
 SET(CMAKE_C_COMPILER "${CMAKE_C_COMPILER} -g")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -g")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g")
-SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -g")
+SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++1y -g")
+add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 
 # ------------------OPTIONS WHICH ARE NEEDED TO SET BUILD-TYPES (COMPILATION FLAGS)--
 # ------------------------------------------------------------------------CUDA-ARCH--
 if(NOT DEFINED CUDA_ARCH)
-    message(STATUS "Setting fallback CUDA_ARCH=61")
-    set(CUDARCH "-arch=sm_61")
+    message(STATUS "Setting fallback CUDA_ARCH=70")
+    set(CUDARCH "-arch=sm_70")
 else(NOT DEFINED CUDA_ARCH)
     message(STATUS "Using provided CUDA_ARCH=${CUDA_ARCH}")
     set(CUDARCH "-arch=sm_${CUDA_ARCH}")
@@ -109,6 +111,7 @@ endif(DoublePrec_GPU)
 include(${CMAKE_SOURCE_DIR}/cmake/BuildTypes.cmake)
 
 #enbale openmp
+find_package(Threads)
 find_package(OpenMP)
 if (OPENMP_FOUND)
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
@@ -120,6 +123,8 @@ if(CUDA)
     # -----------------------------------------------------------------------------CUDA--
     # DOC: http://www.cmake.org/cmake/help/v3.0/module/FindCUDA.html
     FIND_PACKAGE(CUDA)
+    string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_70,code=sm_70")
+    #find_package(CUDAToolkit)
 endif()
 
 if(CUDA_FOUND)
@@ -133,7 +138,7 @@ if(CUDA_FOUND)
     endif()
 
     if(CUDA)
-    	add_definitions(-DCUDA)
+    	add_definitions(-DCUDA_ENABLED)
     endif()
 else(CUDA_FOUND)
     message(STATUS "Using non-cuda compilation....")
@@ -183,9 +188,31 @@ unset(MPI_CXX CACHE)
 unset(MPI_CXX_LIBRARIES CACHE)
 unset(MPI_C_COMPILER CACHE)
 unset(MPI_CXX_COMPILER CACHE)
-find_package(MPI REQUIRED)
 
-include_directories("${MPI_INCLUDE_PATH}")
+#include(CheckCXXSymbolExists)
+#check_cxx_symbol_exists(sincos    math.h   HAVE_SINCOS)
+#check_cxx_symbol_exists(__sincos  math.h   HAVE___SINCOS)
+#
+#if(HAVE_SINCOS)
+#    add_definitions(-DHAVE_SINCOS)
+#endif()
+#if(HAVE___SINCOS)
+#    add_definitions(-DHAVE___SINCOS)
+#endif()
+
+#find_package(MPI)
+#include(${CMAKE_SOURCE_DIR}/cmake/FindMPI.cmake)
+message(STATUS ${MPI_FOUND})
+message(STATUS ${MPI_VERSION})
+#set(MPI_INCLUDE_PATH "~/.conda/envs/tfho/include/")
+#set(MPI_LIBRARIES "~/.conda/envs/tfho/lib64/libmpicxx.so")
+set(MPI_INCLUDE_PATH "/opt/ohpc/pub/apps/openmpi/4.0.2_cuda10.1/include/")
+set(MPI_LIBRARIES "/opt/ohpc/pub/apps/openmpi/4.0.2_cuda10.1/lib/libmpi.so")
+
+set(MPI_CXX_INCLUDE_PATH ${MPI_INCLUDE_PATH})
+set(MPI_CXX_LIBRARIES ${MPI_LIBRARIES})
+include_directories(SYSTEM ${MPI_INCLUDE_PATH})
+
 message(STATUS "MPI_INCLUDE_PATH : ${MPI_INCLUDE_PATH}")
 message(STATUS "MPI_LIBRARIES : ${MPI_LIBRARIES}")
 message(STATUS "MPI_CXX_INCLUDE_PATH : ${MPI_CXX_INCLUDE_PATH}")
@@ -239,16 +266,24 @@ if(NOT FFTW_FOUND)
 	include(${CMAKE_SOURCE_DIR}/cmake/BuildFFTW.cmake)
 endif(NOT FFTW_FOUND)
 
-include(CheckCXXSymbolExists)
-check_cxx_symbol_exists(sincos    math.h   HAVE_SINCOS)
-check_cxx_symbol_exists(__sincos  math.h   HAVE___SINCOS)
+#pytorch
+#if(NOT Torch_FOUND)
+#    #list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
+#    find_package(Torch REQUIRED PATHS "/root/gpu/libtorch")
+#endif()
 
-if(HAVE_SINCOS)
-    add_definitions(-DHAVE_SINCOS)
-endif()
-if(HAVE___SINCOS)
-    add_definitions(-DHAVE___SINCOS)
-endif()
+#tinydnn
+#if(NOT tinydnn_FOUND)
+#    find_package(tinydnn REQUIRED PATHS "${CMAKE_SOURCE_DIR}/../tiny-dnn")
+#endif()
+#
+#paddle
+
+#if(Torch_FOUND)
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+#    SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} ${TORCH_CXX_FLAGS}")
+#endif()
+
 
 # ----------------------------------------------------------------------COPY SCRIPTS--
 

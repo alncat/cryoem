@@ -86,6 +86,9 @@ void runWavgKernel(
 		XFLOAT *trans_y,
 		XFLOAT *trans_z,
 		XFLOAT *sorted_weights,
+        XFLOAT *ori_idx,
+        XFLOAT *ori_proj,
+        XFLOAT *ori_imag,
 		XFLOAT *ctfs,
 		XFLOAT *wdiff2s_parts,
 		XFLOAT *wdiff2s_AA,
@@ -100,7 +103,9 @@ void runWavgKernel(
 		XFLOAT part_scale,
 		bool refs_are_ctf_corrected,
 		bool data_is_3D,
-		cudaStream_t stream);
+		cudaStream_t stream,
+		bool refine_ctf,
+		bool save_proj);
 
 void runBackProjectKernel(
 		CudaBackprojector &BP,

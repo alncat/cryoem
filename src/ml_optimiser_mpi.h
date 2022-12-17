@@ -22,6 +22,7 @@
 #define ML_OPTIMISER_MPI_H_
 #include "src/mpi.h"
 #include "src/ml_optimiser.h"
+//#include "src/vae/train.h"
 
 #define MPITAG_JOB_REQUEST 0
 #define MPITAG_JOB_REPLY 1

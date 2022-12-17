@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -40,9 +40,9 @@
 #include "../block/block_store.cuh"
 #include "../block/block_scan.cuh"
 #include "../block/block_discontinuity.cuh"
+#include "../config.cuh"
 #include "../iterator/cache_modified_input_iterator.cuh"
 #include "../iterator/constant_input_iterator.cuh"
-#include "../util_namespace.cuh"
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -162,7 +162,7 @@ struct AgentSegmentFixup
             ScanTileStateT>
         TilePrefixCallbackOpT;
 
-    // Shared memory type for this threadblock
+    // Shared memory type for this thread block
     union _TempStorage
     {
         struct
@@ -283,7 +283,7 @@ struct AgentSegmentFixup
         else
             BlockLoadPairs(temp_storage.load_pairs).Load(d_pairs_in + tile_offset, pairs);
 
-        __syncthreads();
+        CTA_SYNC();
 
         KeyValuePairT tile_aggregate;
         if (tile_idx == 0)
@@ -346,7 +346,7 @@ struct AgentSegmentFixup
      * Scan tiles of items as part of a dynamic chained scan
      */
     __device__ __forceinline__ void ConsumeRange(
-        int                 num_items,          ///< Total number of input items
+        OffsetT             num_items,          ///< Total number of input items
         int                 num_tiles,          ///< Total number of input tiles
         ScanTileStateT&     tile_state)         ///< Global tile state descriptor
     {

@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -33,6 +33,8 @@
 
 #pragma once
 
+// Static configuration
+#include "config.cuh"
 
 // Block
 #include "block/block_histogram.cuh"
@@ -81,6 +83,7 @@
 #include "iterator/cache_modified_output_iterator.cuh"
 #include "iterator/constant_input_iterator.cuh"
 #include "iterator/counting_input_iterator.cuh"
+#include "iterator/discard_output_iterator.cuh"
 #include "iterator/tex_obj_input_iterator.cuh"
 #include "iterator/tex_ref_input_iterator.cuh"
 #include "iterator/transform_input_iterator.cuh"

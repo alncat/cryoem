@@ -187,6 +187,21 @@ public:
             if (getCopy) getFourierCopy(V);
             else         getFourierAlias(V);
         }
+    
+    /** Compute the Fourier transform of a MultidimArray, 2D and 3D.
+        If getCopy is false, an alias to the transformed data is returned.
+        This is a faster option since a copy of all the data is avoided,
+        but you need to be careful that an inverse Fourier transform may
+        change the data.
+        */
+    template <typename T, typename T1>
+        void FourierTransform(T& v, T1& V, int nr_threads, bool getCopy=true)
+        {
+            setReal(v, nr_threads);
+            Transform(FFTW_FORWARD);
+            if (getCopy) getFourierCopy(V);
+            else         getFourierAlias(V);
+        }
 
     /** Compute the Fourier transform.
         The data is taken from the matrix with which the object was

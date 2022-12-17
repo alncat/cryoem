@@ -31,6 +31,7 @@
 #include "src/healpix_sampling.h"
 #include "src/helix.h"
 #include "src/local_symmetry.h"
+#include "vae/api.h"
 
 #define ML_SIGNIFICANT_WEIGHT 1.e-8
 #define METADATA_LINE_LENGTH METADATA_LINE_LENGTH_ALL
@@ -114,6 +115,8 @@ public:
 
 	// Current weighted sums
 	MlWsumModel wsum_model;
+
+    MultidimArray<RFLOAT> avg_img;
 
 	// HEALPix sampling object for coarse sampling
 	HealpixSampling sampling;
@@ -511,6 +514,9 @@ public:
 
     // Array with pointers to the resolution of each point in a Fourier-space FFTW-like array
 	MultidimArray<int> Mresol_fine, Mresol_coarse, Npix_per_shell;
+
+    // Array with the square of frequency modulus for each resolution shell
+    MultidimArray<RFLOAT> Mresol_freq_mod;
 
 	// Verbosity flag
 	int verb;

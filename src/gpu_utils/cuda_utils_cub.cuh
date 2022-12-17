@@ -14,15 +14,15 @@
 #if(defined(CubLog) && defined(__CUDA_ARCH__) && (__CUDA_ARCH__<= 520)) // Intetionally force a warning for new arch
 	#undef CubLog
 #endif
-//#include "src/gpu_utils/cub/cub.cuh"
+//#include "cub/cub.cuh"
 #include "src/gpu_utils/cub/block/block_reduce.cuh"
-//#include "src/gpu_utils/cub/block/block_histogram.cuh"
-//#include "src/gpu_utils/cub/block/block_discontinuity.cuh"
-//#include "src/gpu_utils/cub/block/block_exchange.cuh"
+//#include "cub/block/block_histogram.cuh"
+//#include "cub/block/block_discontinuity.cuh"
+//#include "cub/block/block_exchange.cuh"
 #include "src/gpu_utils/cub/block/block_load.cuh"
-//#include "src/gpu_utils/cub/block/block_radix_rank.cuh"
-//#include "src/gpu_utils/cub/block/block_radix_sort.cuh"
-//#include "src/gpu_utils/cub/block/block_scan.cuh"
+//#include "cub/block/block_radix_rank.cuh"
+//#include "cub/block/block_radix_sort.cuh"
+//#include "cub/block/block_scan.cuh"
 #include "src/gpu_utils/cub/block/block_store.cuh"
 //
 #include "src/gpu_utils/cub/device/device_radix_sort.cuh"

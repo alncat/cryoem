@@ -19,7 +19,7 @@
  ***************************************************************************/
 #include "src/ml_optimiser_mpi.h"
 #include "src/ml_optimiser.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_ml_optimiser.h"
 #endif
 #include <stdio.h>
@@ -91,7 +91,7 @@ void MlOptimiserMpi::initialise()
 	// Print information about MPI nodes:
     if (!do_movies_in_batches)
     	printMpiNodesMachineNames(*node, nr_threads);
-#ifdef CUDA
+#ifdef CUDA_ENABLED
     /************************************************************************/
 	//Setup GPU related resources
     int devCount, deviceAffinity;
@@ -114,6 +114,7 @@ void MlOptimiserMpi::initialise()
 		// ------------------------------ FIGURE OUT GLOBAL DEVICE MAP------------------------------------------
 		if (!node->isMaster())
 		{
+            
 			cudaDeviceProp deviceProp;
 			int compatibleDevices(0);
 			// Send device count seen by this slave
@@ -146,7 +147,8 @@ void MlOptimiserMpi::initialise()
 		}
 		else
 		{
-
+            //volatile int vae_toggle = 0;
+            //while (0 == vae_toggle) sleep(1);
 			for (int slave = 1; slave < node->size; slave++)
 			{
 				// Receive device count seen by this slave
@@ -301,6 +303,7 @@ void MlOptimiserMpi::initialise()
 
         if (! node->isMaster())
         {
+
             int devCount = cudaDevices.size();
             node->relion_MPI_Send(&devCount, 1, MPI_INT, 0, MPITAG_INT, MPI_COMM_WORLD);
 
@@ -454,6 +457,14 @@ will still yield good performance and possibly a more stable execution. \n" << s
 
 
     MlOptimiser::initialiseGeneral(node->rank);
+    //intialise vae model if not master
+    if(!node->isMaster()) {
+        int masked_size = particle_diameter/(2. * mymodel.pixel_size);
+        masked_size += width_mask_edge;
+        masked_size *= 2;
+        std::cout << "masked_size: " << masked_size << std::endl;
+        //initialise_model_optimizer(mymodel.ori_size, 64, 32, 1e-5, node->rank);
+    }
 
     initialiseWorkLoad();
 
@@ -909,7 +920,7 @@ void MlOptimiserMpi::expectation()
 #define JOB_LEN_FN_RECIMG  (first_last_nr_images(5))
 #define JOB_NPAR  (JOB_LAST - JOB_FIRST + 1)
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	/************************************************************************/
 	//GPU memory setup
 
@@ -1390,7 +1401,7 @@ void MlOptimiserMpi::expectation()
 
 //		TODO: define MPI_COMM_SLAVES!!!!	MPI_Barrier(node->MPI_COMM_SLAVES);
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 			if (do_gpu)
 			{
 				for (int i = 0; i < cudaDeviceBundles.size(); i ++)
@@ -2911,16 +2922,54 @@ void MlOptimiserMpi::onlineUpdate(int ith_recons){
             std::swap(mymodel.weight_old[ith_recons].data, wsum_model.BPref[ith_recons].weight.data);
             std::swap(mymodel.data_old[ith_recons].data, wsum_model.BPref[ith_recons].data.data);
         }
+        //get average value of weight
+        RFLOAT r_max = (wsum_model.BPref[ith_recons].weight.xdim - 1)/2.;
+        RFLOAT max_r2 = ROUND(2*r_max)*ROUND(2*r_max);
+        RFLOAT avg_weight = 0.;
+        RFLOAT counter = 0.;
+        FOR_ALL_ELEMENTS_IN_ARRAY3D(wsum_model.BPref[ith_recons].weight) {
+            RFLOAT r2 = k*k + i*i + j*j;
+            if(r2 < max_r2) {
+                avg_weight += A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                counter += 1;
+            }
+        }
+        avg_weight /= counter;
+        r_max = (mymodel.weight_old[ith_recons].xdim - 1)/2.;
+        max_r2 = ROUND(2*r_max)*ROUND(2*r_max);
+        RFLOAT avg_weight_old = 0.;
+        counter = 0.;
+        FOR_ALL_ELEMENTS_IN_ARRAY3D(mymodel.weight_old[ith_recons]){
+            RFLOAT r2 = k*k + i*i + j*j;
+            if(r2 < max_r2) {
+                avg_weight_old += A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j);
+                counter += 1;
+            }
+        }
+        avg_weight_old /= counter;
+        RFLOAT scale = 1.;
+        if(swapped) scale = avg_weight/avg_weight_old;
+        else scale = avg_weight_old/avg_weight;
         FOR_ALL_ELEMENTS_IN_ARRAY3D(wsum_model.BPref[ith_recons].weight){
             if(k >= STARTINGZ(mymodel.weight_old[ith_recons]) && k <= FINISHINGZ(mymodel.weight_old[ith_recons]) 
                     && i >= STARTINGY(mymodel.weight_old[ith_recons]) && i <= FINISHINGY(mymodel.weight_old[ith_recons])
                     && j >= STARTINGX(mymodel.weight_old[ith_recons]) && j <= FINISHINGX(mymodel.weight_old[ith_recons])) {
-                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
-                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                if(swapped) {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*scale*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*scale*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + (1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                } else {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) = mu*A3D_ELEM(mymodel.weight_old[ith_recons], k, i, j) + scale*(1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) = mu*A3D_ELEM(mymodel.data_old[ith_recons], k, i, j) + scale*(1. - mu)*A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j);
+                }
 
             } else {
-                A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= (1. - mu);
-                A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= (1. - mu);
+                if(swapped) {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= (1. - mu);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= (1. - mu);
+                } else {
+                    A3D_ELEM(wsum_model.BPref[ith_recons].weight, k, i, j) *= scale*(1. - mu);
+                    A3D_ELEM(wsum_model.BPref[ith_recons].data, k, i, j) *= scale*(1. - mu);
+                }
             }
         }
         if(swapped) mu = 1. - mu;
@@ -3138,6 +3187,8 @@ void MlOptimiserMpi::iterate()
             }
             acceptance_ratio *= 1.035;
             adaptive_fraction *= 1.01;
+            //sigma2_fudge *= exp(-0.06);
+            //sigma2_fudge = std::max(sigma2_fudge, 0.25);
             adaptive_fraction = std::min(adaptive_fraction, 0.999);
         }
 
@@ -3278,6 +3329,7 @@ void MlOptimiserMpi::iterate()
 					{
                         //if(node->rank == 1)
                         //    std::cout << DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) << std::endl;
+                        //    allowing some fluctuation
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.5)//MOD: && fsc05 < 0)
 							fsc05 = i;
 						if (DIRECT_A1D_ELEM(mymodel.fsc_halves_class, i) >= 0.143)//MOD: < 0.143 && fsc0143 < 0)

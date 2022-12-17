@@ -160,6 +160,8 @@ void buildCorrImage(MlOptimiser *baseMLO, OptimisationParamters &op, CudaGlobalP
 	// rather where we apply the additional correction to make the GPU-specific arithmetic equal
 	// to the CPU method)
 	XFLOAT myscale = baseMLO->mymodel.scale_correction[group_id];
+    XFLOAT norm_correction = DIRECT_A2D_ELEM(baseMLO->exp_metadata, op.metadata_offset + ipart, METADATA_NORM);
+    //myscale *= norm_correction;
 	if (baseMLO->do_scale_correction)
 		for(int i = 0; i < corr_img.getSize(); i++)
 			corr_img[i] *= myscale * myscale;
@@ -281,6 +283,9 @@ void runWavgKernel(
 		XFLOAT *trans_y,
 		XFLOAT *trans_z,
 		XFLOAT *sorted_weights,
+        XFLOAT *ori_idx,
+        XFLOAT *ori_proj,
+        XFLOAT *ori_img,
 		XFLOAT *ctfs,
 		XFLOAT *wdiff2s_parts,
 		XFLOAT *wdiff2s_AA,
@@ -295,7 +300,9 @@ void runWavgKernel(
 		XFLOAT part_scale,
 		bool refs_are_ctf_corrected,
 		bool data_is_3D,
-		cudaStream_t stream)
+		cudaStream_t stream,
+		bool refine_ctf,
+    bool save_proj)
 {
 	//We only want as many blocks as there are chunks of orientations to be treated
 	//within the same block (this is done to reduce memory loads in the kernel).
@@ -393,7 +400,11 @@ void runWavgKernel(
 				part_scale
 				);
 		else if (projector.mdlZ!=0)
-			cuda_kernel_wavg<false,true,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
+			{
+				//may need to translate to truth table
+				if(refine_ctf && save_proj)
+					{
+				cuda_kernel_wavg<true, true, false,true,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
 				eulers,
 				projector,
 				image_size,
@@ -404,6 +415,9 @@ void runWavgKernel(
 				trans_y,
 				trans_z,
 				sorted_weights,
+                ori_idx,
+                ori_proj,
+                ori_img,
 				ctfs,
 				wdiff2s_parts,
 				wdiff2s_AA,
@@ -413,6 +427,86 @@ void runWavgKernel(
 				(XFLOAT) op.significant_weight[ipart],
 				part_scale
 				);
+					}
+				else if (refine_ctf && !save_proj)
+					{
+						cuda_kernel_wavg<true, false, false,true,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
+				eulers,
+				projector,
+				image_size,
+				orientation_num,
+				Fimg_real,
+				Fimg_imag,
+				trans_x,
+				trans_y,
+				trans_z,
+				sorted_weights,
+                ori_idx,
+                ori_proj,
+                ori_img,
+				ctfs,
+				wdiff2s_parts,
+				wdiff2s_AA,
+				wdiff2s_XA,
+				translation_num,
+				(XFLOAT) op.sum_weight[ipart],
+				(XFLOAT) op.significant_weight[ipart],
+				part_scale
+				);
+					}
+				else if (!refine_ctf && save_proj)
+					{
+						cuda_kernel_wavg<false, true, false,true,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
+				eulers,
+				projector,
+				image_size,
+				orientation_num,
+				Fimg_real,
+				Fimg_imag,
+				trans_x,
+				trans_y,
+				trans_z,
+				sorted_weights,
+                ori_idx,
+                ori_proj,
+                ori_img,
+				ctfs,
+				wdiff2s_parts,
+				wdiff2s_AA,
+				wdiff2s_XA,
+				translation_num,
+				(XFLOAT) op.sum_weight[ipart],
+				(XFLOAT) op.significant_weight[ipart],
+				part_scale
+				);
+					}
+				else
+					{
+						cuda_kernel_wavg<false, false, false,true,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
+				eulers,
+				projector,
+				image_size,
+				orientation_num,
+				Fimg_real,
+				Fimg_imag,
+				trans_x,
+				trans_y,
+				trans_z,
+				sorted_weights,
+                ori_idx,
+                ori_proj,
+                ori_img,
+				ctfs,
+				wdiff2s_parts,
+				wdiff2s_AA,
+				wdiff2s_XA,
+				translation_num,
+				(XFLOAT) op.sum_weight[ipart],
+				(XFLOAT) op.significant_weight[ipart],
+				part_scale
+				);
+					}
+			}
 		else
 			cuda_kernel_wavg<false,false,false,WAVG_BLOCK_SIZE><<<block_dim,WAVG_BLOCK_SIZE,(3*WAVG_BLOCK_SIZE+9)*sizeof(XFLOAT),stream>>>(
 				eulers,

@@ -1,7 +1,7 @@
 
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -43,7 +43,9 @@
 #include "../../util_device.cuh"
 #include "../../thread/thread_search.cuh"
 #include "../../grid/grid_queue.cuh"
-#include "../../util_namespace.cuh"
+#include "../../config.cuh"
+
+#include <thrust/system/cuda/detail/core/triple_chevron_launch.h>
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -329,49 +331,14 @@ struct DipatchHistogram
     // Tuning policies
     //---------------------------------------------------------------------
 
-    /// SM11
-    struct Policy110
+    template <int NOMINAL_ITEMS_PER_THREAD>
+    struct TScale
     {
-        // HistogramSweepPolicy
-        typedef AgentHistogramPolicy<
-                512,
-                (NUM_CHANNELS == 1) ? 8 : 2,
-                BLOCK_LOAD_DIRECT,
-                LOAD_DEFAULT,
-                true,
-                GMEM,
-                false>
-            HistogramSweepPolicy;
-    };
-
-    /// SM20
-    struct Policy200
-    {
-        // HistogramSweepPolicy
-        typedef AgentHistogramPolicy<
-                (NUM_CHANNELS == 1) ? 256 : 128,
-                (NUM_CHANNELS == 1) ? 8 : 3,
-                (NUM_CHANNELS == 1) ? BLOCK_LOAD_DIRECT : BLOCK_LOAD_WARP_TRANSPOSE,
-                LOAD_DEFAULT,
-                true,
-                SMEM,
-                false>
-            HistogramSweepPolicy;
-    };
-
-    /// SM30
-    struct Policy300
-    {
-        // HistogramSweepPolicy
-        typedef AgentHistogramPolicy<
-                512,
-                (NUM_CHANNELS == 1) ? 8 : 2,
-                BLOCK_LOAD_DIRECT,
-                LOAD_DEFAULT,
-                true,
-                GMEM,
-                false>
-            HistogramSweepPolicy;
+        enum
+        {
+            V_SCALE = (sizeof(SampleT) + sizeof(int) - 1) / sizeof(int),
+            VALUE   = CUB_MAX((NOMINAL_ITEMS_PER_THREAD / NUM_ACTIVE_CHANNELS / V_SCALE), 1)
+        };
     };
 
     /// SM35
@@ -380,7 +347,7 @@ struct DipatchHistogram
         // HistogramSweepPolicy
         typedef AgentHistogramPolicy<
                 128,
-                (NUM_CHANNELS == 1) ? 8 : 7,
+                TScale<8>::VALUE,
                 BLOCK_LOAD_DIRECT,
                 LOAD_LDG,
                 true,
@@ -394,13 +361,13 @@ struct DipatchHistogram
     {
         // HistogramSweepPolicy
         typedef AgentHistogramPolicy<
-                256,
-                8,
+                384,
+                TScale<16>::VALUE,
                 BLOCK_LOAD_DIRECT,
                 LOAD_LDG,
                 true,
                 SMEM,
-                true>
+                false>
             HistogramSweepPolicy;
     };
 
@@ -413,17 +380,8 @@ struct DipatchHistogram
 #if (CUB_PTX_ARCH >= 500)
     typedef Policy500 PtxPolicy;
 
-#elif (CUB_PTX_ARCH >= 350)
-    typedef Policy350 PtxPolicy;
-
-#elif (CUB_PTX_ARCH >= 300)
-    typedef Policy300 PtxPolicy;
-
-#elif (CUB_PTX_ARCH >= 200)
-    typedef Policy200 PtxPolicy;
-
 #else
-    typedef Policy110 PtxPolicy;
+    typedef Policy350 PtxPolicy;
 
 #endif
 
@@ -444,41 +402,29 @@ struct DipatchHistogram
         int             ptx_version,
         KernelConfig    &histogram_sweep_config)
     {
-    #if (CUB_PTX_ARCH > 0)
-
-        // We're on the device, so initialize the kernel dispatch configurations with the current PTX policy
-        return histogram_sweep_config.template Init<PtxHistogramSweepPolicy>();
-
-    #else
-
-        // We're on the host, so lookup and initialize the kernel dispatch configurations with the policies that match the device's PTX version
-        if (ptx_version >= 500)
+        cudaError_t result = cudaErrorNotSupported;
+        if (CUB_IS_DEVICE_CODE)
         {
-            return histogram_sweep_config.template Init<typename Policy500::HistogramSweepPolicy>();
-        }
-        else if (ptx_version >= 350)
-        {
-            return histogram_sweep_config.template Init<typename Policy350::HistogramSweepPolicy>();
-        }
-        else if (ptx_version >= 300)
-        {
-            return histogram_sweep_config.template Init<typename Policy300::HistogramSweepPolicy>();
-        }
-        else if (ptx_version >= 200)
-        {
-            return histogram_sweep_config.template Init<typename Policy200::HistogramSweepPolicy>();
-        }
-        else if (ptx_version >= 110)
-        {
-            return histogram_sweep_config.template Init<typename Policy110::HistogramSweepPolicy>();
+            #if CUB_INCLUDE_DEVICE_CODE
+                // We're on the device, so initialize the kernel dispatch configurations with the current PTX policy
+                result = histogram_sweep_config.template Init<PtxHistogramSweepPolicy>();
+            #endif
         }
         else
         {
-            // No global atomic support
-            return cudaErrorNotSupported;
+            #if CUB_INCLUDE_HOST_CODE
+                // We're on the host, so lookup and initialize the kernel dispatch configurations with the policies that match the device's PTX version
+                if (ptx_version >= 500)
+                {
+                    result = histogram_sweep_config.template Init<typename Policy500::HistogramSweepPolicy>();
+                }
+                else
+                {
+                    result = histogram_sweep_config.template Init<typename Policy350::HistogramSweepPolicy>();
+                }
+            #endif
         }
-
-    #endif
+        return result;
     }
 
 
@@ -577,7 +523,7 @@ struct DipatchHistogram
             int blocks_per_col      = (blocks_per_row > 0) ?
                                         int(CUB_MIN(histogram_sweep_occupancy / blocks_per_row, num_rows)) :
                                         0;
-            int num_threadblocks    = blocks_per_row * blocks_per_col;
+            int num_thread_blocks   = blocks_per_row * blocks_per_col;
 
             dim3 sweep_grid_dims;
             sweep_grid_dims.x = (unsigned int) blocks_per_row;
@@ -586,11 +532,11 @@ struct DipatchHistogram
 
             // Temporary storage allocation requirements
             const int   NUM_ALLOCATIONS = NUM_ACTIVE_CHANNELS + 1;
-            void*       allocations[NUM_ALLOCATIONS];
+            void*       allocations[NUM_ALLOCATIONS] = {};
             size_t      allocation_sizes[NUM_ALLOCATIONS];
 
             for (int CHANNEL = 0; CHANNEL < NUM_ACTIVE_CHANNELS; ++CHANNEL)
-                allocation_sizes[CHANNEL] = size_t(num_threadblocks) * (num_privatized_levels[CHANNEL] - 1) * sizeof(CounterT);
+                allocation_sizes[CHANNEL] = size_t(num_thread_blocks) * (num_privatized_levels[CHANNEL] - 1) * sizeof(CounterT);
 
             allocation_sizes[NUM_ALLOCATIONS - 1] = GridQueue<int>::AllocationSize();
 
@@ -643,7 +589,10 @@ struct DipatchHistogram
                 histogram_init_grid_dims, histogram_init_block_threads, (long long) stream);
 
             // Invoke histogram_init_kernel
-            histogram_init_kernel<<<histogram_init_grid_dims, histogram_init_block_threads, 0, stream>>>(
+            thrust::cuda_cub::launcher::triple_chevron(
+                histogram_init_grid_dims, histogram_init_block_threads, 0,
+                stream
+            ).doit(histogram_init_kernel,
                 num_output_bins_wrapper,
                 d_output_histograms_wrapper,
                 tile_queue);
@@ -658,7 +607,9 @@ struct DipatchHistogram
                 histogram_sweep_config.block_threads, (long long) stream, histogram_sweep_config.pixels_per_thread, histogram_sweep_sm_occupancy);
 
             // Invoke histogram_sweep_kernel
-            histogram_sweep_kernel<<<sweep_grid_dims, histogram_sweep_config.block_threads, 0, stream>>>(
+            thrust::cuda_cub::launcher::triple_chevron(
+                sweep_grid_dims, histogram_sweep_config.block_threads, 0, stream
+            ).doit(histogram_sweep_kernel,
                 d_samples,
                 num_output_bins_wrapper,
                 num_privatized_bins_wrapper,
@@ -693,10 +644,10 @@ struct DipatchHistogram
      */
     CUB_RUNTIME_FUNCTION
     static cudaError_t DispatchRange(
-        void*               d_temp_storage,                            ///< [in] %Device-accessible allocation of temporary storage.  When NULL, the required allocation size is written to \p temp_storage_bytes and no work is done.
-        size_t&             temp_storage_bytes,                        ///< [in,out] Reference to size in bytes of \p d_temp_storage allocation
+        void*               d_temp_storage,                                ///< [in] %Device-accessible allocation of temporary storage.  When NULL, the required allocation size is written to \p temp_storage_bytes and no work is done.
+        size_t&             temp_storage_bytes,                            ///< [in,out] Reference to size in bytes of \p d_temp_storage allocation
         SampleIteratorT     d_samples,                                  ///< [in] The pointer to the multi-channel input sequence of data samples. The samples from different channels are assumed to be interleaved (e.g., an array of 32-bit pixels where each pixel consists of four RGBA 8-bit samples).
-        CounterT*           d_output_histograms[NUM_ACTIVE_CHANNELS],  ///< [out] The pointers to the histogram counter output arrays, one for each active channel.  For channel<sub><em>i</em></sub>, the allocation length of <tt>d_histograms[i]</tt> should be <tt>num_output_levels[i]</tt> - 1.
+        CounterT*           d_output_histograms[NUM_ACTIVE_CHANNELS],      ///< [out] The pointers to the histogram counter output arrays, one for each active channel.  For channel<sub><em>i</em></sub>, the allocation length of <tt>d_histograms[i]</tt> should be <tt>num_output_levels[i]</tt> - 1.
         int                 num_output_levels[NUM_ACTIVE_CHANNELS],     ///< [in] The number of boundaries (levels) for delineating histogram samples in each active channel.  Implies that the number of bins for channel<sub><em>i</em></sub> is <tt>num_output_levels[i]</tt> - 1.
         LevelT              *d_levels[NUM_ACTIVE_CHANNELS],             ///< [in] The pointers to the arrays of boundaries (levels), one for each active channel.  Bin ranges are defined by consecutive boundary pairings: lower sample value boundaries are inclusive and upper sample value boundaries are exclusive.
         OffsetT             num_row_pixels,                             ///< [in] The number of multi-channel pixels per row in the region of interest
@@ -704,18 +655,14 @@ struct DipatchHistogram
         OffsetT             row_stride_samples,                         ///< [in] The number of samples between starts of consecutive rows in the region of interest
         cudaStream_t        stream,                                     ///< [in] CUDA stream to launch kernels within.  Default is stream<sub>0</sub>.
         bool                debug_synchronous,                          ///< [in] Whether or not to synchronize the stream after every kernel launch to check for errors.  May cause significant slowdown.  Default is \p false.
-        Int2Type<false>     is_byte_sample)                             ///< [in] Marker type indicating whether or not SampleT is a 8b type
+        Int2Type<false>     /*is_byte_sample*/)                         ///< [in] Marker type indicating whether or not SampleT is a 8b type
     {
         cudaError error = cudaSuccess;
         do
         {
             // Get PTX version
-            int ptx_version;
-    #if (CUB_PTX_ARCH == 0)
+            int ptx_version = 0;
             if (CubDebug(error = PtxVersion(ptx_version))) break;
-    #else
-            ptx_version = CUB_PTX_ARCH;
-    #endif
 
             // Get kernel dispatch configurations
             KernelConfig histogram_sweep_config;
@@ -812,18 +759,14 @@ struct DipatchHistogram
         OffsetT             row_stride_samples,                         ///< [in] The number of samples between starts of consecutive rows in the region of interest
         cudaStream_t        stream,                                     ///< [in] CUDA stream to launch kernels within.  Default is stream<sub>0</sub>.
         bool                debug_synchronous,                          ///< [in] Whether or not to synchronize the stream after every kernel launch to check for errors.  May cause significant slowdown.  Default is \p false.
-        Int2Type<true>      is_byte_sample)                             ///< [in] Marker type indicating whether or not SampleT is a 8b type
+        Int2Type<true>      /*is_byte_sample*/)                         ///< [in] Marker type indicating whether or not SampleT is a 8b type
     {
         cudaError error = cudaSuccess;
         do
         {
             // Get PTX version
-            int ptx_version;
-    #if (CUB_PTX_ARCH == 0)
+            int ptx_version = 0;
             if (CubDebug(error = PtxVersion(ptx_version))) break;
-    #else
-            ptx_version = CUB_PTX_ARCH;
-    #endif
 
             // Get kernel dispatch configurations
             KernelConfig histogram_sweep_config;
@@ -895,18 +838,14 @@ struct DipatchHistogram
         OffsetT             row_stride_samples,                         ///< [in] The number of samples between starts of consecutive rows in the region of interest
         cudaStream_t        stream,                                     ///< [in] CUDA stream to launch kernels within.  Default is stream<sub>0</sub>.
         bool                debug_synchronous,                          ///< [in] Whether or not to synchronize the stream after every kernel launch to check for errors.  May cause significant slowdown.  Default is \p false.
-        Int2Type<false>     is_byte_sample)                             ///< [in] Marker type indicating whether or not SampleT is a 8b type
+        Int2Type<false>     /*is_byte_sample*/)                         ///< [in] Marker type indicating whether or not SampleT is a 8b type
     {
         cudaError error = cudaSuccess;
         do
         {
             // Get PTX version
-            int ptx_version;
-    #if (CUB_PTX_ARCH == 0)
+            int ptx_version = 0;
             if (CubDebug(error = PtxVersion(ptx_version))) break;
-    #else
-            ptx_version = CUB_PTX_ARCH;
-    #endif
 
             // Get kernel dispatch configurations
             KernelConfig histogram_sweep_config;
@@ -1007,18 +946,14 @@ struct DipatchHistogram
         OffsetT             row_stride_samples,                         ///< [in] The number of samples between starts of consecutive rows in the region of interest
         cudaStream_t        stream,                                     ///< [in] CUDA stream to launch kernels within.  Default is stream<sub>0</sub>.
         bool                debug_synchronous,                          ///< [in] Whether or not to synchronize the stream after every kernel launch to check for errors.  May cause significant slowdown.  Default is \p false.
-        Int2Type<true>      is_byte_sample)                             ///< [in] Marker type indicating whether or not SampleT is a 8b type
+        Int2Type<true>      /*is_byte_sample*/)                         ///< [in] Marker type indicating whether or not SampleT is a 8b type
     {
         cudaError error = cudaSuccess;
         do
         {
             // Get PTX version
-            int ptx_version;
-    #if (CUB_PTX_ARCH == 0)
+            int ptx_version = 0;
             if (CubDebug(error = PtxVersion(ptx_version))) break;
-    #else
-            ptx_version = CUB_PTX_ARCH;
-    #endif
 
             // Get kernel dispatch configurations
             KernelConfig histogram_sweep_config;

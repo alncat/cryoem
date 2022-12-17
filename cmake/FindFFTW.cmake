@@ -3,6 +3,7 @@
 #
 
 set(FFTW_EXTERNAL_PATH "${CMAKE_SOURCE_DIR}/external/fftw")
+message(STATUS "${FFTW_EXTERNAL_PATH}")
 
 if(DoublePrec_CPU)
    # set fftw lib to use double precision

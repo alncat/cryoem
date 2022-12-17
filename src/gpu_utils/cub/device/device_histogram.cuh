@@ -1,7 +1,7 @@
 
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -39,7 +39,7 @@
 #include <limits>
 
 #include "dispatch/dispatch_histogram.cuh"
-#include "../util_namespace.cuh"
+#include "../config.cuh"
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -448,7 +448,7 @@ struct DeviceHistogram
         Int2Type<sizeof(SampleT) == 1> is_byte_sample;
 
         if ((sizeof(OffsetT) > sizeof(int)) &&
-            ((unsigned long long) (num_rows * row_stride_bytes) < (unsigned long long) std::numeric_limits<int>::max()))
+            ((unsigned long long) (num_rows * row_stride_bytes) < (unsigned long long) INT_MAX))
         {
             // Down-convert OffsetT data type
 
@@ -551,8 +551,8 @@ struct DeviceHistogram
             num_levels1,
             d_levels1,
             num_samples,
-            1,
-            sizeof(SampleT) * num_samples,
+            (OffsetT)1,
+            (size_t)(sizeof(SampleT) * num_samples),
             stream,
             debug_synchronous);
     }
@@ -741,8 +741,8 @@ struct DeviceHistogram
             num_levels,
             d_levels,
             num_pixels,
-            1,
-            sizeof(SampleT) * NUM_CHANNELS * num_pixels,
+            (OffsetT)1,
+            (size_t)(sizeof(SampleT) * NUM_CHANNELS * num_pixels),
             stream,
             debug_synchronous);
     }
@@ -840,7 +840,7 @@ struct DeviceHistogram
         Int2Type<sizeof(SampleT) == 1> is_byte_sample;
 
         if ((sizeof(OffsetT) > sizeof(int)) &&
-            ((unsigned long long) (num_rows * row_stride_bytes) < (unsigned long long) std::numeric_limits<int>::max()))
+            ((unsigned long long) (num_rows * row_stride_bytes) < (unsigned long long) INT_MAX))
         {
             // Down-convert OffsetT data type
             return DipatchHistogram<NUM_CHANNELS, NUM_ACTIVE_CHANNELS, SampleIteratorT, CounterT, LevelT, int>::DispatchRange(

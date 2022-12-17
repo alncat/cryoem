@@ -108,7 +108,7 @@ void AutoPicker::read(int argc, char **argv)
 	do_only_unfinished = parser.checkOption("--only_do_unfinished", "Only autopick those micrographs for which the coordinate file does not yet exist");
 	do_gpu = parser.checkOption("--gpu", "Use GPU acceleration when availiable");
 	gpu_ids = parser.getOption("--gpu", "Device ids for each MPI-thread","default");
-#ifndef CUDA
+#ifndef CUDA_ENABLED
 	if(do_gpu)
 	{
 		std::cerr << "+ WARNING : Relion was compiled without CUDA of at least version 7.0 - you do NOT have support for GPUs" << std::endl;
@@ -629,7 +629,7 @@ void AutoPicker::initialise()
 
 }
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 int AutoPicker::deviceInitialise()
 {
 	int devCount;

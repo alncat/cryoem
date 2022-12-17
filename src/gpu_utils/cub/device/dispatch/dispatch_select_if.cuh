@@ -1,7 +1,7 @@
 
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -38,11 +38,13 @@
 #include <iterator>
 
 #include "dispatch_scan.cuh"
+#include "../../config.cuh"
 #include "../../agent/agent_select_if.cuh"
 #include "../../thread/thread_operators.cuh"
 #include "../../grid/grid_queue.cuh"
 #include "../../util_device.cuh"
-#include "../../util_namespace.cuh"
+
+#include <thrust/system/cuda/detail/core/triple_chevron_launch.h>
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -168,95 +170,11 @@ struct DispatchSelectIf
             SelectIfPolicyT;
     };
 
-    /// SM30
-    struct Policy300
-    {
-        enum {
-            NOMINAL_4B_ITEMS_PER_THREAD = 7,
-            ITEMS_PER_THREAD            = CUB_MIN(NOMINAL_4B_ITEMS_PER_THREAD, CUB_MAX(3, (NOMINAL_4B_ITEMS_PER_THREAD * 4 / sizeof(OutputT)))),
-        };
-
-        typedef AgentSelectIfPolicy<
-                128,
-                ITEMS_PER_THREAD,
-                BLOCK_LOAD_WARP_TRANSPOSE,
-                LOAD_DEFAULT,
-                BLOCK_SCAN_WARP_SCANS>
-            SelectIfPolicyT;
-    };
-
-    /// SM20
-    struct Policy200
-    {
-        enum {
-            NOMINAL_4B_ITEMS_PER_THREAD = (KEEP_REJECTS) ? 7 : 15,
-            ITEMS_PER_THREAD            = CUB_MIN(NOMINAL_4B_ITEMS_PER_THREAD, CUB_MAX(1, (NOMINAL_4B_ITEMS_PER_THREAD * 4 / sizeof(OutputT)))),
-        };
-
-        typedef AgentSelectIfPolicy<
-                128,
-                ITEMS_PER_THREAD,
-                BLOCK_LOAD_WARP_TRANSPOSE,
-                LOAD_DEFAULT,
-                BLOCK_SCAN_WARP_SCANS>
-            SelectIfPolicyT;
-    };
-
-    /// SM13
-    struct Policy130
-    {
-        enum {
-            NOMINAL_4B_ITEMS_PER_THREAD = 9,
-            ITEMS_PER_THREAD            = CUB_MIN(NOMINAL_4B_ITEMS_PER_THREAD, CUB_MAX(1, (NOMINAL_4B_ITEMS_PER_THREAD * 4 / sizeof(OutputT)))),
-        };
-
-        typedef AgentSelectIfPolicy<
-                64,
-                ITEMS_PER_THREAD,
-                BLOCK_LOAD_WARP_TRANSPOSE,
-                LOAD_DEFAULT,
-                BLOCK_SCAN_RAKING_MEMOIZE>
-            SelectIfPolicyT;
-    };
-
-    /// SM10
-    struct Policy100
-    {
-        enum {
-            NOMINAL_4B_ITEMS_PER_THREAD = 9,
-            ITEMS_PER_THREAD            = CUB_MIN(NOMINAL_4B_ITEMS_PER_THREAD, CUB_MAX(1, (NOMINAL_4B_ITEMS_PER_THREAD * 4 / sizeof(OutputT)))),
-        };
-
-        typedef AgentSelectIfPolicy<
-                64,
-                ITEMS_PER_THREAD,
-                BLOCK_LOAD_WARP_TRANSPOSE,
-                LOAD_DEFAULT,
-                BLOCK_SCAN_RAKING>
-            SelectIfPolicyT;
-    };
-
-
     /******************************************************************************
      * Tuning policies of current PTX compiler pass
      ******************************************************************************/
 
-#if (CUB_PTX_ARCH >= 350)
     typedef Policy350 PtxPolicy;
-
-#elif (CUB_PTX_ARCH >= 300)
-    typedef Policy300 PtxPolicy;
-
-#elif (CUB_PTX_ARCH >= 200)
-    typedef Policy200 PtxPolicy;
-
-#elif (CUB_PTX_ARCH >= 130)
-    typedef Policy130 PtxPolicy;
-
-#else
-    typedef Policy100 PtxPolicy;
-
-#endif
 
     // "Opaque" policies (whose parameterizations aren't reflected in the type signature)
     struct PtxSelectIfPolicyT : PtxPolicy::SelectIfPolicyT {};
@@ -275,37 +193,23 @@ struct DispatchSelectIf
         int             ptx_version,
         KernelConfig    &select_if_config)
     {
-    #if (CUB_PTX_ARCH > 0)
-        (void)ptx_version;
-
-        // We're on the device, so initialize the kernel dispatch configurations with the current PTX policy
-        select_if_config.template Init<PtxSelectIfPolicyT>();
-
-    #else
-
-        // We're on the host, so lookup and initialize the kernel dispatch configurations with the policies that match the device's PTX version
-        if (ptx_version >= 350)
-        {
-            select_if_config.template Init<typename Policy350::SelectIfPolicyT>();
-        }
-        else if (ptx_version >= 300)
-        {
-            select_if_config.template Init<typename Policy300::SelectIfPolicyT>();
-        }
-        else if (ptx_version >= 200)
-        {
-            select_if_config.template Init<typename Policy200::SelectIfPolicyT>();
-        }
-        else if (ptx_version >= 130)
-        {
-            select_if_config.template Init<typename Policy130::SelectIfPolicyT>();
+        if (CUB_IS_DEVICE_CODE) {
+            #if CUB_INCLUDE_DEVICE_CODE
+                (void)ptx_version;
+                // We're on the device, so initialize the kernel dispatch configurations with the current PTX policy
+                select_if_config.template Init<PtxSelectIfPolicyT>();
+            #endif
         }
         else
         {
-            select_if_config.template Init<typename Policy100::SelectIfPolicyT>();
-        }
+            #if CUB_INCLUDE_HOST_CODE
+                // We're on the host, so lookup and initialize the kernel dispatch configurations with the policies that match the device's PTX version
 
-    #endif
+                // (There's only one policy right now)
+                (void)ptx_version;
+                select_if_config.template Init<typename Policy350::SelectIfPolicyT>();
+            #endif
+        }
     }
 
 
@@ -400,7 +304,7 @@ struct DispatchSelectIf
             if (CubDebug(error = ScanTileStateT::AllocationSize(num_tiles, allocation_sizes[0]))) break;    // bytes needed for tile status descriptors
 
             // Compute allocation pointers into the single storage blob (or compute the necessary size of the blob)
-            void* allocations[1];
+            void* allocations[1] = {};
             if (CubDebug(error = AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes))) break;
             if (d_temp_storage == NULL)
             {
@@ -417,7 +321,9 @@ struct DispatchSelectIf
             if (debug_synchronous) _CubLog("Invoking scan_init_kernel<<<%d, %d, 0, %lld>>>()\n", init_grid_size, INIT_KERNEL_THREADS, (long long) stream);
 
             // Invoke scan_init_kernel to initialize tile descriptors
-            scan_init_kernel<<<init_grid_size, INIT_KERNEL_THREADS, 0, stream>>>(
+            thrust::cuda_cub::launcher::triple_chevron(
+                init_grid_size, INIT_KERNEL_THREADS, 0, stream
+            ).doit(scan_init_kernel,
                 tile_status,
                 num_tiles,
                 d_num_selected_out);
@@ -454,7 +360,9 @@ struct DispatchSelectIf
                 scan_grid_size.x, scan_grid_size.y, scan_grid_size.z, select_if_config.block_threads, (long long) stream, select_if_config.items_per_thread, range_select_sm_occupancy);
 
             // Invoke select_if_kernel
-            select_if_kernel<<<scan_grid_size, select_if_config.block_threads, 0, stream>>>(
+            thrust::cuda_cub::launcher::triple_chevron(
+                scan_grid_size, select_if_config.block_threads, 0, stream
+            ).doit(select_if_kernel,
                 d_in,
                 d_flags,
                 d_selected_out,
@@ -500,12 +408,8 @@ struct DispatchSelectIf
         do
         {
             // Get PTX version
-            int ptx_version;
-    #if (CUB_PTX_ARCH == 0)
+            int ptx_version = 0;
             if (CubDebug(error = PtxVersion(ptx_version))) break;
-    #else
-            ptx_version = CUB_PTX_ARCH;
-    #endif
 
             // Get kernel kernel dispatch configurations
             KernelConfig select_if_config;

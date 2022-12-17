@@ -1374,6 +1374,43 @@ void selfApplyBeamTilt(MultidimArray<Complex > &Fimg, RFLOAT beamtilt_x, RFLOAT 
 
 }
 
+void BeamTiltGradHess(MultidimArray<Complex > &Fimg, RFLOAT beamtilt_x, RFLOAT beamtilt_y,
+		RFLOAT wavelength, RFLOAT Cs, RFLOAT angpix, int ori_size)
+{
+	if (Fimg.getDim() != 2)
+		REPORT_ERROR("applyBeamTilt can only be done on 2D Fourier Transforms!");
+
+	RFLOAT boxsize = angpix * ori_size;
+	RFLOAT factor = 0.360 * Cs * 10000000 * wavelength * wavelength / (boxsize * boxsize * boxsize);
+    RFLOAT grad_bx = 0.;
+    RFLOAT grad_by = 0.;
+    RFLOAT hess_x = 0.;
+    RFLOAT hess_y = 0.;
+    RFLOAT hess_xy = 0.;
+	FOR_ALL_ELEMENTS_IN_FFTW_TRANSFORM2D(Fimg)
+	{
+		RFLOAT delta_phase = factor * (ip * ip + jp * jp) * (ip * beamtilt_y + jp * beamtilt_x);
+        RFLOAT common = factor * (ip * ip + jp * jp);
+		RFLOAT realval = DIRECT_A2D_ELEM(Fimg, i, j).real;
+		RFLOAT imagval = DIRECT_A2D_ELEM(Fimg, i, j).imag;
+		//RFLOAT mag = sqrt(realval * realval + imagval * imagval);
+		//RFLOAT phas = atan2(imagval, realval) + DEG2RAD(delta_phase); // apply phase shift!
+		//realval = mag * cos(phas);
+		//imagval = mag * sin(phas);
+        RFLOAT grad = -realval * sin(common * (ip * beamtilt_y + jp * beamtilt_x)) - 
+                      imagval * cos(common * (ip * beamtilt_y + jp * beamtilt_x)) ;
+        grad_bx += grad * common * jp;
+        grad_by += grad * common * ip;
+        RFLOAT hess = realval * cos(common * (ip * beamtilt_x + jp * beamtilt_y))
+                      - imagval * sin(common * (ip * beamtilt_x + jp * beamtilt_y));
+        hess_x = hess * common * jp * common * jp;
+        hess_y = hess * common * ip * common * ip;
+        hess_xy = hess * common * jp * common *ip;
+		//DIRECT_A2D_ELEM(Fimg, i, j) = Complex(realval, imagval);
+	}
+
+}
+
 void padAndFloat2DMap(const MultidimArray<RFLOAT > &v, MultidimArray<RFLOAT> &out, int factor)
 {
 	long int Xdim, Ydim, Zdim, Ndim, XYdim;

@@ -18,7 +18,7 @@
  * author citations must be preserved.
  ***************************************************************************/
 #include "src/motioncorr_runner.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_mem_utils.h"
 #endif
 
@@ -127,7 +127,7 @@ void MotioncorrRunner::initialise()
 
 	}
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	if (!do_unblur)
 	{
 		if (gpu_ids.length() > 0)

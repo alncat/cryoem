@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2011, Duane Merrill.  All rights reserved.
- * Copyright (c) 2011-2016, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2011-2018, NVIDIA CORPORATION.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -39,9 +39,9 @@
 #include "../block/block_load.cuh"
 #include "../block/block_store.cuh"
 #include "../block/block_scan.cuh"
+#include "../config.cuh"
 #include "../grid/grid_queue.cuh"
 #include "../iterator/cache_modified_input_iterator.cuh"
-#include "../util_namespace.cuh"
 
 /// Optional outer namespace(s)
 CUB_NS_PREFIX
@@ -58,20 +58,18 @@ namespace cub {
  * Parameterizable tuning policy type for AgentScan
  */
 template <
-    int                         _BLOCK_THREADS,                 ///< Threads per thread block
-    int                         _ITEMS_PER_THREAD,              ///< Items per thread (per tile of input)
+    int                         NOMINAL_BLOCK_THREADS_4B,       ///< Threads per thread block
+    int                         NOMINAL_ITEMS_PER_THREAD_4B,    ///< Items per thread (per tile of input)
+    typename                    ComputeT,                       ///< Dominant compute type
     BlockLoadAlgorithm          _LOAD_ALGORITHM,                ///< The BlockLoad algorithm to use
     CacheLoadModifier           _LOAD_MODIFIER,                 ///< Cache load modifier for reading input elements
     BlockStoreAlgorithm         _STORE_ALGORITHM,               ///< The BlockStore algorithm to use
-    BlockScanAlgorithm          _SCAN_ALGORITHM>                ///< The BlockScan algorithm to use
-struct AgentScanPolicy
-{
-    enum
-    {
-        BLOCK_THREADS           = _BLOCK_THREADS,               ///< Threads per thread block
-        ITEMS_PER_THREAD        = _ITEMS_PER_THREAD,            ///< Items per thread (per tile of input)
-    };
+    BlockScanAlgorithm          _SCAN_ALGORITHM,                ///< The BlockScan algorithm to use
+    typename                    ScalingType =  MemBoundScaling<NOMINAL_BLOCK_THREADS_4B, NOMINAL_ITEMS_PER_THREAD_4B, ComputeT> >
 
+struct AgentScanPolicy :
+    ScalingType
+{
     static const BlockLoadAlgorithm     LOAD_ALGORITHM          = _LOAD_ALGORITHM;          ///< The BlockLoad algorithm to use
     static const CacheLoadModifier      LOAD_MODIFIER           = _LOAD_MODIFIER;           ///< Cache load modifier for reading input elements
     static const BlockStoreAlgorithm    STORE_ALGORITHM         = _STORE_ALGORITHM;         ///< The BlockStore algorithm to use
@@ -102,12 +100,13 @@ struct AgentScan
     //---------------------------------------------------------------------
 
     // The input value type
-    typedef typename std::iterator_traits<InputIteratorT>::value_type InputT;
+    using InputT = typename std::iterator_traits<InputIteratorT>::value_type;
 
-    // The output value type
-    typedef typename If<(Equals<typename std::iterator_traits<OutputIteratorT>::value_type, void>::VALUE),  // OutputT =  (if output iterator's value type is void) ?
-        typename std::iterator_traits<InputIteratorT>::value_type,                                          // ... then the input iterator's value type,
-        typename std::iterator_traits<OutputIteratorT>::value_type>::Type OutputT;                          // ... else the output iterator's value type
+    // The output value type -- used as the intermediate accumulator
+    // Per https://wg21.link/P0571, use InitValueT if provided, otherwise the
+    // input iterator's value type.
+    using OutputT =
+      typename If<Equals<InitValueT, NullType>::VALUE, InputT, InitValueT>::Type;
 
     // Tile status descriptor interface type
     typedef ScanTileState<OutputT> ScanTileStateT;
@@ -163,7 +162,7 @@ struct AgentScan
             ScanOpT>
         RunningPrefixCallbackOp;
 
-    // Shared memory type for this threadblock
+    // Shared memory type for this thread block
     union _TempStorage
     {
         typename BlockLoadT::TempStorage    load;       // Smem needed for tile loading
@@ -295,11 +294,21 @@ struct AgentScan
         OutputT items[ITEMS_PER_THREAD];
 
         if (IS_LAST_TILE)
-            BlockLoadT(temp_storage.load).Load(d_in + tile_offset, items, num_remaining);
+        {
+            // Fill last element with the first element because collectives are
+            // not suffix guarded.
+            BlockLoadT(temp_storage.load)
+              .Load(d_in + tile_offset,
+                    items,
+                    num_remaining,
+                    *(d_in + tile_offset));
+        }
         else
+        {
             BlockLoadT(temp_storage.load).Load(d_in + tile_offset, items);
+        }
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Perform tile scan
         if (tile_idx == 0)
@@ -317,7 +326,7 @@ struct AgentScan
             ScanTile(items, scan_op, prefix_op, Int2Type<IS_INCLUSIVE>());
         }
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Store items
         if (IS_LAST_TILE)
@@ -331,7 +340,7 @@ struct AgentScan
      * Scan tiles of items as part of a dynamic chained scan
      */
     __device__ __forceinline__ void ConsumeRange(
-        int                 num_items,          ///< Total number of input items
+        OffsetT             num_items,          ///< Total number of input items
         ScanTileStateT&     tile_state,         ///< Global tile state descriptor
         int                 start_tile)         ///< The starting tile for the current grid
     {
@@ -372,11 +381,21 @@ struct AgentScan
         OutputT items[ITEMS_PER_THREAD];
 
         if (IS_LAST_TILE)
-            BlockLoadT(temp_storage.load).Load(d_in + tile_offset, items, valid_items);
+        {
+            // Fill last element with the first element because collectives are
+            // not suffix guarded.
+            BlockLoadT(temp_storage.load)
+              .Load(d_in + tile_offset,
+                    items,
+                    valid_items,
+                    *(d_in + tile_offset));
+        }
         else
+        {
             BlockLoadT(temp_storage.load).Load(d_in + tile_offset, items);
+        }
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Block scan
         if (IS_FIRST_TILE)
@@ -390,7 +409,7 @@ struct AgentScan
             ScanTile(items, scan_op, prefix_op, Int2Type<IS_INCLUSIVE>());
         }
 
-        __syncthreads();
+        CTA_SYNC();
 
         // Store items
         if (IS_LAST_TILE)

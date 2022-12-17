@@ -43,7 +43,7 @@
 #include "src/macros.h"
 #include "src/error.h"
 #include "src/ml_optimiser.h"
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 #include "src/gpu_utils/cuda_ml_optimiser.h"
 #endif
 
@@ -63,7 +63,7 @@ void globalThreadExpectationSomeParticles(ThreadArgument &thArg)
 
 	try
 	{
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 		if (MLO->do_gpu)
 			((MlOptimiserCuda*) MLO->cudaOptimisers[thArg.thread_id])->doThreadExpectationSomeParticles(thArg.thread_id);
 		else
@@ -336,7 +336,7 @@ void MlOptimiser::parseContinue(int argc, char **argv)
 
 	do_gpu = parser.checkOption("--gpu", "Use available gpu resources for some calculations");
 	gpu_ids = parser.getOption("--gpu", "Device ids for each MPI-thread","default");
-#ifndef CUDA
+#ifndef CUDA_ENABLED
 	if(do_gpu)
 	{
 		std::cerr << "+ WARNING : Relion was compiled without CUDA of at least version 7.0 - you do NOT have support for GPUs" << std::endl;
@@ -384,6 +384,17 @@ void MlOptimiser::parseContinue(int argc, char **argv)
 	asymmetric_padding = parser.checkOption("--asymmetric_padding", "", "false", true);
 	maximum_significants = textToInteger(parser.getOption("--maxsig", "", "0", true));
 	skip_gridding = parser.checkOption("--skip_gridding", "", "false", true);
+    //add support for ssri when using --continue
+    mymodel.do_tv = parser.checkOption("--tv", "Using total variation based regularization");
+
+    mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in sparsity and smoothness based reconstruction", "100"));
+    mymodel.l_r = textToFloat(parser.getOption("--tv_lr", "Learning rate for graph net based reconstrunction", "1"));
+    mymodel.tv_weight = textToFloat(parser.getOption("--tv_weight", "Weight for implicit regularisation parameter", "0.1"));
+    mymodel.tv_alpha = textToFloat(parser.getOption("--tv_alpha", "Regularisation parameter for L1 norm", "0.1"));
+    mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for tv norm", "0.1"));
+    mymodel.tv_eps  = textToFloat(parser.getOption("--tv_eps", "eps value for l1 norm", "0.1"));
+    mymodel.tv_epsp = textToFloat(parser.getOption("--tv_epsp", "eps value for tv norm", "0.1"));
+    acceptance_ratio = textToDouble(parser.getOption("--acceptance_ratio", "The acceptance_ratio for sample random sampling", "1."));
 
 	do_print_metadata_labels = false;
 	do_print_symmetry_ops = false;
@@ -419,7 +430,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     nr_iter = textToInteger(parser.getOption("--iter", "Maximum number of iterations to perform", "50"));
     mymodel.pixel_size = textToFloat(parser.getOption("--angpix", "Pixel size (in Angstroms)", "-1"));
 	mymodel.tau2_fudge_factor = textToFloat(parser.getOption("--tau2_fudge", "Regularisation parameter (values higher than 1 give more weight to the data)", "1"));
-    //mymodel.do_tv = textToInteger(parser.getOption("--do_tv", "Toggle graph net based reconstruction", "0"));
+    //ssri optimization parameter
     mymodel.do_tv = parser.checkOption("--tv", "Using total variation based regularization");
 
     mymodel.tv_iters = textToInteger(parser.getOption("--tv_iters", "Number of iterations used in sparsity and smoothness based reconstruction", "100"));
@@ -429,6 +440,15 @@ void MlOptimiser::parseInitial(int argc, char **argv)
     mymodel.tv_beta = textToFloat(parser.getOption("--tv_beta", "Regularisation parameter for tv norm", "0.1"));
     mymodel.tv_eps  = textToFloat(parser.getOption("--tv_eps", "eps value for l1 norm", "0.1"));
     mymodel.tv_epsp = textToFloat(parser.getOption("--tv_epsp", "eps value for tv norm", "0.1"));
+
+    //parameters for ctf correction
+    mymodel.ctf_refinement_order = textToInteger(parser.getOption("--ctf_order", "healpix searching order to start CTF refinement", "2"));
+    mymodel.ctf_refine_angle = parser.checkOption("--refine_ctf_angle", "refine defocus angle in ctf refinement");
+    mymodel.ctf_defocus_dev = textToFloat(parser.getOption("--ctf_defocus_dev", "restraint strength for defocus deviation", "1."));
+    mymodel.ctf_defocus_iso = textToFloat(parser.getOption("--ctf_defocus_iso", "restraint strength for defocus isotropy", "0.5"));
+    std::cout << "ctf_defocus_dev: " << mymodel.ctf_defocus_dev << ", ctf_defocus_iso: " << mymodel.ctf_defocus_iso << std::endl;
+    std::cout << "refine ctf angle: " << mymodel.ctf_refine_angle << std::endl;
+
 	mymodel.nr_classes = textToInteger(parser.getOption("--K", "Number of references to be refined", "1"));
     acceptance_ratio = textToDouble(parser.getOption("--acceptance_ratio", "The acceptance_ratio for sample random sampling", "1."));
     particle_diameter = textToFloat(parser.getOption("--particle_diameter", "Diameter of the circular mask that will be applied to the experimental images (in Angstroms)", "-1"));
@@ -577,7 +597,7 @@ void MlOptimiser::parseInitial(int argc, char **argv)
 
 	do_gpu = parser.checkOption("--gpu", "Use available gpu resources for some calculations");
 	gpu_ids = parser.getOption("--gpu", "Device ids for each MPI-thread","default");
-#ifndef CUDA
+#ifndef CUDA_ENABLED
 	if(do_gpu)
 	{
 		std::cerr << "+ WARNING : Relion was compiled without CUDA of at least version 7.0 - you do NOT have support for GPUs" << std::endl;
@@ -1024,9 +1044,10 @@ void MlOptimiser::initialise()
     std::cerr<<"MlOptimiser::initialise Entering"<<std::endl;
 #endif
 
+    //vae_run();
 	if (do_gpu)
 	{
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 		int devCount;
 		HANDLE_ERROR(cudaGetDeviceCount(&devCount));
 
@@ -1213,6 +1234,7 @@ void MlOptimiser::initialiseGeneral(int rank)
 {
     //initialise my rank
     myRank = rank;
+    //vae_run();
 
 #ifdef DEBUG
 	std::cerr << "Entering initialiseGeneral" << std::endl;
@@ -1665,6 +1687,15 @@ void MlOptimiser::initialiseGeneral(int rank)
 	sum_changes_optimal_offsets = 0.;
 	sum_changes_optimal_classes = 0.;
 	sum_changes_count = 0.;
+    //initialise the frequency modulus array for b factor correction
+    if (mymodel.data_dim == 2){
+        std::cout << "initialise frequency modulus array" << std::endl;
+        Mresol_freq_mod.resize(mymodel.ori_size/2 + 1);
+        for(int ires = 0; ires < mymodel.ori_size/2 + 1; ires++) {
+            DIRECT_A1D_ELEM(Mresol_freq_mod, ires) = RFLOAT(ires*ires)/(mymodel.ori_size*mymodel.pixel_size*mymodel.ori_size*mymodel.pixel_size);
+            //std::cout << DIRECT_A1D_ELEM(Mresol_freq_mod, ires) << std::endl;
+        }
+    }
 
 	if (mymodel.data_dim == 3)
 	{
@@ -2035,6 +2066,8 @@ void MlOptimiser::setSigmaNoiseEstimatesAndSetAverageImage(MultidimArray<RFLOAT>
     	total_sum += wsum_model.sumw_group[igroup];
     }
     Mavg /= total_sum;
+    //can store avg image here
+    avg_img = Mavg;
 
 	if (fn_ref == "None")
 	{
@@ -2055,13 +2088,13 @@ void MlOptimiser::setSigmaNoiseEstimatesAndSetAverageImage(MultidimArray<RFLOAT>
 		// Calculate power spectrum of the average image
 		MultidimArray<RFLOAT> spect;
 		getSpectrum(Mavg, spect, POWER_SPECTRUM);
-		spect /= 2.; // because of 2-dimensionality of the complex plane
+		//spect /= 2.; // because of 2-dimensionality of the complex plane
 		spect.resize(mymodel.sigma2_noise[0]);
 
 		for (int igroup = 0; igroup < wsum_model.nr_groups; igroup++)
 		{
 			// Factor 2 because of 2-dimensionality of the complex plane
-			mymodel.sigma2_noise[igroup] = wsum_model.sigma2_noise[igroup] / ( 2. * wsum_model.sumw_group[igroup] );
+			mymodel.sigma2_noise[igroup] = wsum_model.sigma2_noise[igroup] / ( wsum_model.sumw_group[igroup] );//2
 
 			// Now subtract power spectrum of the average image from the average power spectrum of the individual images
 			mymodel.sigma2_noise[igroup] -= spect;
@@ -2437,7 +2470,7 @@ void MlOptimiser::expectation()
 	std::cerr << "Expectation: done setupCheckMemory" << std::endl;
 #endif
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	/************************************************************************/
 	//GPU memory setup
 
@@ -2602,7 +2635,7 @@ void MlOptimiser::expectation()
 	if (subset_size < 0 && verb > 0)
 		progress_bar(nr_particles_todo);
 
-#ifdef CUDA
+#ifdef CUDA_ENABLED
 	if (do_gpu)
 	{
 		for (int i = 0; i < cudaDeviceBundles.size(); i ++)
@@ -3666,7 +3699,7 @@ void MlOptimiser::maximizationOtherParameters()
 	if (do_norm_correction)
 	{
 		mymodel.avg_norm_correction *= mu;
-		mymodel.avg_norm_correction += (1. - mu) * wsum_model.avg_norm_correction / sum_weight;
+		mymodel.avg_norm_correction += (1. - mu) * (wsum_model.avg_norm_correction / sum_weight);
 	}
 
 	if (do_scale_correction && !((iter==1 && do_firstiter_cc) || do_always_cc) )
@@ -3677,7 +3710,7 @@ void MlOptimiser::maximizationOtherParameters()
 			RFLOAT sumXA = wsum_model.wsum_signal_product_spectra[igroup].sum();
 			RFLOAT sumAA = wsum_model.wsum_reference_power_spectra[igroup].sum();
 			if (sumAA > 0.)
-				mymodel.scale_correction[igroup] += (1. - mu) * sumXA / sumAA;
+				mymodel.scale_correction[igroup] += (1. - mu) * (sumXA / sumAA);
 			else
 				mymodel.scale_correction[igroup] += (1. - mu);
 		}
@@ -3706,7 +3739,10 @@ void MlOptimiser::maximizationOtherParameters()
 		avg_scale_correction /= nr_part;
 		for (int igroup = 0; igroup < mymodel.nr_groups; igroup++)
 		{
-			mymodel.scale_correction[igroup] /= avg_scale_correction;
+            //std::cout << mymodel.scale_correction[igroup] << std::endl;
+            //if(iter == 1)
+			    mymodel.scale_correction[igroup] /= avg_scale_correction;
+            //mymodel.scale_correction[igroup] = 0.5*mymodel.scale_correction[igroup] + 0.5;
 //#define DEBUG_UPDATE_SCALE
 #ifdef DEBUG_UPDATE_SCALE
 			if (verb > 0)
@@ -3795,21 +3831,34 @@ void MlOptimiser::maximizationOtherParameters()
 
 //			if(tsum==0) //if nothing has been done for this group, use previous intr noise2_sigma
 //				wsum_model.sigma2_noise[igroup].data = mymodel.sigma2_noise[igroup].data;
+            
 			if(tsum!=0)
 			{
 				// Factor 2 because of the 2-dimensionality of the complex-plane
+                RFLOAT t_pixls = 0.;
 				FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mymodel.sigma2_noise[igroup])
 				{
 					DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) *= mu;
+                    // luo: no need to divide by 2
 					DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) +=
 							(1. - mu) * DIRECT_MULTIDIM_ELEM(wsum_model.sigma2_noise[igroup], n ) /
-								(2. * wsum_model.sumw_group[igroup] * DIRECT_MULTIDIM_ELEM(Npix_per_shell, n));
+								(wsum_model.sumw_group[igroup] * DIRECT_MULTIDIM_ELEM(Npix_per_shell, n));//*2
+                    t_pixls += DIRECT_MULTIDIM_ELEM(Npix_per_shell,n);
 					// Watch out for all-zero sigma2 in case of CTF-premultiplication!
 					if (ctf_premultiplied)
 						DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) = XMIPP_MAX(DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n), 1e-15);
 
 				}
+                // average sigma2_noise
+                RFLOAT avg_sigma2_noise = tsum/(wsum_model.sumw_group[igroup] * t_pixls);
+                // add average sigma2_noise
+                //FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mymodel.sigma2_noise[igroup])
+                //{
+                //    DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) = 0.9 * DIRECT_MULTIDIM_ELEM(mymodel.sigma2_noise[igroup], n) + 0.1 * avg_sigma2_noise;
+                //}
+                
 			}
+
 		}
 	}
 	RCTIC(timer,RCT_7);
@@ -4001,7 +4050,7 @@ void MlOptimiser::updateCurrentResolution()
                 int fsc05 = 1;
 				for (ires = 1; ires < mymodel.ori_size/2; ires++)
 				{
-					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) >= 1.)
+					if (DIRECT_A1D_ELEM(mymodel.data_vs_prior_class[iclass], ires) >= 1.0)//0.96078)
                         fsc05 = ires;
 						//break;
 				}
@@ -7740,7 +7789,7 @@ void MlOptimiser::calculateExpectedAngularErrors(long int my_first_ori_particle,
 							int ires = DIRECT_MULTIDIM_ELEM(*myMresol, n);
 							if (ires > 0)
 							{
-								my_snr += norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / (2 * sigma2_fudge * mymodel.sigma2_noise[group_id](ires) );
+								my_snr += norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / (sigma2_fudge * mymodel.sigma2_noise[group_id](ires) );//2
 							}
 						}
 //#define DEBUG_ANGACC
@@ -7796,7 +7845,7 @@ void MlOptimiser::calculateExpectedAngularErrors(long int my_first_ori_particle,
 								int ires = DIRECT_MULTIDIM_ELEM(*myMresol, n);
 								if (ires > 0)
 									mymodel.orientability_contrib[iclass](ires) +=
-											norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / ( (2 * sigma2_fudge * mymodel.sigma2_noise[group_id](ires) ) );
+											norm(DIRECT_MULTIDIM_ELEM(F1, n) - DIRECT_MULTIDIM_ELEM(F2, n)) / ( (sigma2_fudge * mymodel.sigma2_noise[group_id](ires) ) );
 							}
 						}
 
@@ -8152,6 +8201,12 @@ void MlOptimiser::setMetaDataSubset(int first_ori_particle_id, int last_ori_part
 			mydata.MDimg.setValue(EMDL_PARTICLE_PMAX, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_PMAX), part_id);
 			mydata.MDimg.setValue(EMDL_PARTICLE_NR_SIGNIFICANT_SAMPLES,(int)DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_NR_SIGN), part_id);
 			mydata.MDimg.setValue(EMDL_IMAGE_NORM_CORRECTION, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_NORM), part_id);
+            //set bfactor!!!
+            mydata.MDimg.setValue(EMDL_CTF_BFACTOR, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_BFAC), part_id);
+            //set defocus
+            mydata.MDimg.setValue(EMDL_CTF_DEFOCUSU, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_U), part_id);
+            mydata.MDimg.setValue(EMDL_CTF_DEFOCUSV, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_V), part_id);
+            mydata.MDimg.setValue(EMDL_CTF_DEFOCUS_ANGLE, DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_CTF_DEFOCUS_ANGLE), part_id);
 
 			// For the moment, CTF, prior and transformation matrix info is NOT updated...
 			RFLOAT prior_x = DIRECT_A2D_ELEM(exp_metadata, my_image_no, METADATA_XOFF_PRIOR);
